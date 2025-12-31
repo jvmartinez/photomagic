@@ -1,0 +1,29 @@
+
+# Gradle
+.gradle/
+build/
+!build/kotlin/compile*
+!build/tmp/kapt*
+
+# Android Studio
+.idea/
+*.iml
+*.hprof
+captures/
+.externalNativeBuild/
+local.properties
+
+# Android
+/app/build/
+/app/release/
+/app/debug/
+
+# Mac
+.DS_Store
+
+# Other
+*.apk
+*.ap_
+*.aab
+*~
+*.swp
