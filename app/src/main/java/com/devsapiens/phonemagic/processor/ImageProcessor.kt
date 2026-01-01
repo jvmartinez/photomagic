@@ -13,6 +13,7 @@ import com.devsapiens.phonemagic.model.FilterAParams
 import com.devsapiens.phonemagic.model.FilterBParams
 import com.devsapiens.phonemagic.model.FilterParams
 import com.devsapiens.phonemagic.model.EditorState
+import java.util.concurrent.Executors
 
 object ImageProcessor {
 
@@ -134,27 +135,92 @@ object ImageProcessor {
         val shG = ((sh shr 8) and 0xFF) / 255f
         val shB = (sh and 0xFF) / 255f
 
-        val pixels = IntArray(width * height)
-        out.getPixels(pixels, 0, width, 0, 0, width, height)
-        for (i in pixels.indices) {
-            val c = pixels[i]
-            val a = Color.alpha(c)
-            val r = Color.red(c)
-            val g = Color.green(c)
-            val b = Color.blue(c)
-            // luminance (0..1)
-            val lum = (0.299f * r + 0.587f * g + 0.114f * b) / 255f
-            // shadow factor: 1 - lum, highlight factor: lum
-            val shFactor = (1f - lum)
-            val hiFactor = lum
-            // apply tints
-            val newR = (r / 255f * (1f - strength) + (shR * shFactor + hiR * hiFactor) * strength) * 255f
-            val newG = (g / 255f * (1f - strength) + (shG * shFactor + hiG * hiFactor) * strength) * 255f
-            val newB = (b / 255f * (1f - strength) + (shB * shFactor + hiB * hiFactor) * strength) * 255f
-            pixels[i] = Color.argb(a, newR.coerceIn(0f, 255f).toInt(), newG.coerceIn(0f, 255f).toInt(), newB.coerceIn(0f, 255f).toInt())
+        // Use tiled processing for very large images to reduce peak memory
+        val pixelCount = width.toLong() * height.toLong()
+        val tileRowLimit = 4_000_000L // target ~4M pixels per tile (adjustable)
+        if (pixelCount <= tileRowLimit) {
+            // small enough — process whole image in parallel as before
+            val pixels = IntArray(width * height)
+            out.getPixels(pixels, 0, width, 0, 0, width, height)
+
+            val cores = Runtime.getRuntime().availableProcessors().coerceAtLeast(1)
+            val executor = Executors.newFixedThreadPool(cores)
+            try {
+                val chunkSize = (pixels.size + cores - 1) / cores
+                val futures = mutableListOf<java.util.concurrent.Future<*>>()
+                for (t in 0 until cores) {
+                    val start = t * chunkSize
+                    val end = kotlin.math.min(start + chunkSize, pixels.size)
+                    if (start >= end) continue
+                    futures += executor.submit {
+                        var i = start
+                        while (i < end) {
+                            val c = pixels[i]
+                            val a = Color.alpha(c)
+                            val r = Color.red(c)
+                            val g = Color.green(c)
+                            val b = Color.blue(c)
+                            val lum = (0.299f * r + 0.587f * g + 0.114f * b) / 255f
+                            val shFactor = (1f - lum)
+                            val hiFactor = lum
+                            val newR = (r / 255f * (1f - strength) + (shR * shFactor + hiR * hiFactor) * strength) * 255f
+                            val newG = (g / 255f * (1f - strength) + (shG * shFactor + hiG * hiFactor) * strength) * 255f
+                            val newB = (b / 255f * (1f - strength) + (shB * shFactor + hiB * hiFactor) * strength) * 255f
+                            pixels[i] = Color.argb(a, newR.coerceIn(0f, 255f).toInt(), newG.coerceIn(0f, 255f).toInt(), newB.coerceIn(0f, 255f).toInt())
+                            i++
+                        }
+                    }
+                }
+                for (f in futures) f.get()
+            } finally {
+                executor.shutdown()
+            }
+            out.setPixels(pixels, 0, width, 0, 0, width, height)
+            return out
+        } else {
+            // Large image: process in row tiles to limit memory per tile
+            val cores = Runtime.getRuntime().availableProcessors().coerceAtLeast(1)
+            val targetTilePixels = tileRowLimit
+            val tileHeight = kotlin.math.max(1, (targetTilePixels / width).toInt())
+            val executor = Executors.newFixedThreadPool(cores)
+            try {
+                val tasks = mutableListOf<java.util.concurrent.Future<*>>()
+                var rowStart = 0
+                while (rowStart < height) {
+                    val rows = kotlin.math.min(tileHeight, height - rowStart)
+                    // Submit a task to process this tile
+                    tasks += executor.submit {
+                        val tilePixels = IntArray(width * rows)
+                        out.getPixels(tilePixels, 0, width, 0, rowStart, width, rows)
+                        // process this tile's pixels
+                        var i = 0
+                        while (i < tilePixels.size) {
+                            val c = tilePixels[i]
+                            val a = Color.alpha(c)
+                            val r = Color.red(c)
+                            val g = Color.green(c)
+                            val b = Color.blue(c)
+                            val lum = (0.299f * r + 0.587f * g + 0.114f * b) / 255f
+                            val shFactor = (1f - lum)
+                            val hiFactor = lum
+                            val newR = (r / 255f * (1f - strength) + (shR * shFactor + hiR * hiFactor) * strength) * 255f
+                            val newG = (g / 255f * (1f - strength) + (shG * shFactor + hiG * hiFactor) * strength) * 255f
+                            val newB = (b / 255f * (1f - strength) + (shB * shFactor + hiB * hiFactor) * strength) * 255f
+                            tilePixels[i] = Color.argb(a, newR.coerceIn(0f, 255f).toInt(), newG.coerceIn(0f, 255f).toInt(), newB.coerceIn(0f, 255f).toInt())
+                            i++
+                        }
+                        // write back this tile
+                        out.setPixels(tilePixels, 0, width, 0, rowStart, width, rows)
+                    }
+                    rowStart += rows
+                }
+                // wait for all tiles
+                for (t in tasks) t.get()
+            } finally {
+                executor.shutdown()
+            }
+            return out
         }
-        out.setPixels(pixels, 0, width, 0, 0, width, height)
-        return out
     }
 
     // Placeholder for enhance (sharpen/denoise) - currently no-op

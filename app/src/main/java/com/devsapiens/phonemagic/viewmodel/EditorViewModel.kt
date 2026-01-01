@@ -113,4 +113,17 @@ class EditorViewModel : ViewModel() {
     fun exportBitmap(): Bitmap? {
         return ImageProcessor.processAll(_state.value)
     }
+
+    /**
+     * Returns a new Bitmap with all current filters/layers applied (the 'baked' image).
+     * This is CPU-intensive and should be called from a background dispatcher.
+     */
+    fun bakeFilters(): Bitmap? {
+        return ImageProcessor.processAll(_state.value)
+    }
+
+    /**
+     * Apply a baked bitmap into the state using commit so the action is undoable.
+     */
+    fun applyBakedBitmap(bitmap: Bitmap) = commit { it.copy(baseBitmap = bitmap) }
 }

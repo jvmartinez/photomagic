@@ -16,6 +16,10 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -25,31 +29,43 @@ import com.devsapiens.phonemagic.viewmodel.EditorViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import androidx.compose.material3.CircularProgressIndicator
 
 @Composable
 fun ExportScreen(onDone: () -> Unit) {
     val ctx = LocalContext.current
     val vm: EditorViewModel = viewModel()
     val scope = rememberCoroutineScope()
+    var exporting by remember { mutableStateOf(false) }
 
     Scaffold(topBar = { TopAppBar(title = { Text("Exportar") }) }) { inner ->
         Column(modifier = Modifier
             .padding(inner)
             .fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
             Text("Vista previa final")
-            Button(onClick = {
-                // Export and save in background
-                scope.launch {
-                    val bmp = withContext(Dispatchers.Default) { vm.exportBitmap() }
-                    bmp?.let { saved ->
-                        val uri = saveBitmapToMediaStore(ctx, saved)
-                        onDone()
-                    } ?: run {
-                        onDone()
-                    }
+            if (exporting) {
+                CircularProgressIndicator()
+                Button(onClick = {}, enabled = false, modifier = Modifier.padding(top = 16.dp)) {
+                    Text("Guardando...")
                 }
-            }, modifier = Modifier.padding(top = 16.dp)) {
-                Text("Guardar y regresar")
+            } else {
+                Button(onClick = {
+                    // Export and save in background
+                    exporting = true
+                    scope.launch {
+                        val bmp = withContext(Dispatchers.Default) { vm.exportBitmap() }
+                        bmp?.let { saved ->
+                            val uri = saveBitmapToMediaStore(ctx, saved)
+                            exporting = false
+                            onDone()
+                        } ?: run {
+                            exporting = false
+                            onDone()
+                        }
+                    }
+                }, modifier = Modifier.padding(top = 16.dp)) {
+                    Text("Guardar y regresar")
+                }
             }
         }
     }
