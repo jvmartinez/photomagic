@@ -37,7 +37,9 @@ class EditorViewModel : ViewModel() {
     fun applyEnhance(params: EnhanceParams) = commit { it.copy(enhance = params) }
 
     // New: apply Filter A params with clamping
-    fun applyFilterA(params: FilterAParams) = commit { it.copy(filterA = clampFilterA(params)) }
+    fun applyFilterA(params: FilterAParams) = commit {
+        it.copy(filterA = clampFilterA(params))
+    }
 
     // New: apply Filter B params with clamping
     fun applyFilterB(params: FilterBParams) = commit { it.copy(filterB = clampFilterB(params)) }

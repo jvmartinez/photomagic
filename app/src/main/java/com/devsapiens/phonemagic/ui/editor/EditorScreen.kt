@@ -75,6 +75,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import androidx.compose.runtime.mutableStateMapOf
 import android.util.Log
+import androidx.compose.material3.Button
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -111,43 +112,87 @@ fun EditorScreen(onExport: () -> Unit, onBack: () -> Unit, viewModel: EditorView
         return matrix
     }
 
-    // Debounced preview cache: update previewImage when baseBitmap/filterA/filterB/layers change, debounced by 250ms
+    // Debounced preview cache: update previewImage when the editor state changes (baseBitmap, filters, layers, etc.)
     val previewImageState = remember { mutableStateOf<ImageBitmap?>(null) }
 
-    LaunchedEffect(
-        state.value.baseBitmap,
-        state.value.filterA,
-        state.value.filterB,
-        state.value.layers
-    ) {
-        snapshotFlow { Triple(state.value.baseBitmap, state.value.filterA, state.value.filterB) }
-            .debounce(250)
-            .collectLatest { triple ->
-                val baseAny = triple.first
-                val baseBitmap = baseAny as? Bitmap
-                if (baseBitmap == null) {
-                    previewImageState.value = null
-                } else {
-                    val processed = withContext(Dispatchers.Default) {
-                        val maxDim = 800
-                        val src =
-                            if (kotlin.math.max(baseBitmap.width, baseBitmap.height) > maxDim) {
-                                val scale = maxDim.toFloat() / kotlin.math.max(
-                                    baseBitmap.width,
-                                    baseBitmap.height
-                                )
-                                Bitmap.createScaledBitmap(
-                                    baseBitmap,
-                                    (baseBitmap.width * scale).toInt(),
-                                    (baseBitmap.height * scale).toInt(),
-                                    true
-                                )
-                            } else baseBitmap
-                        val tempState = state.value.copy(baseBitmap = src)
-                        ImageProcessor.processAll(tempState)
+    // local context for resource/uri access
+    val ctx = LocalContext.current
+
+    LaunchedEffect(Unit) {
+        snapshotFlow { state.value }
+            .debounce(120)
+            .collectLatest { s ->
+                Log.d("EditorScreen", "Preview update triggered - baseBitmap=${s.baseBitmap != null}, filter=${s.filter}, filterA=${s.filterA}, filterB=${s.filterB}")
+                val maxDim = 800
+                // determine source bitmap: prefer baseBitmap, otherwise try loading from imageUri
+                val srcBitmap: Bitmap? = withContext(Dispatchers.IO) {
+                    s.baseBitmap ?: run {
+                        val uri = s.imageUri ?: return@withContext null
+                        try {
+                            ctx.contentResolver.openInputStream(uri)?.use { ins ->
+                                val opts = BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888 }
+                                val decoded = BitmapFactory.decodeStream(ins, null, opts) ?: return@use null
+                                val scale = maxDim.toFloat() / kotlin.math.max(decoded.width, decoded.height).coerceAtLeast(1)
+                                if (scale < 1f) Bitmap.createScaledBitmap(decoded, (decoded.width * scale).toInt(), (decoded.height * scale).toInt(), true) else decoded
+                            }
+                        } catch (e: Throwable) {
+                            Log.w("EditorScreen", "Failed to decode imageUri for preview: ${e.message}")
+                            null
+                        }
                     }
-                    previewImageState.value = processed?.asImageBitmap()
                 }
+
+                if (srcBitmap == null) {
+                    previewImageState.value = null
+                    return@collectLatest
+                }
+
+                val processed = withContext(Dispatchers.Default) {
+                    val src = if (kotlin.math.max(srcBitmap.width, srcBitmap.height) > maxDim) {
+                        val scale = maxDim.toFloat() / kotlin.math.max(srcBitmap.width, srcBitmap.height)
+                        Bitmap.createScaledBitmap(srcBitmap, (srcBitmap.width * scale).toInt(), (srcBitmap.height * scale).toInt(), true)
+                    } else srcBitmap
+
+                    // If ViewModel has no baseBitmap, persist the loaded src so future operations use it
+                    if (s.baseBitmap == null) {
+                        try {
+                            withContext(Dispatchers.Main) {
+                                viewModel.setBaseBitmap(src)
+                            }
+                        } catch (_: Throwable) {
+                        }
+                    }
+
+                    val tempState = s.copy(baseBitmap = src)
+                    var out: Bitmap? = null
+                    try {
+                        out = ImageProcessor.processAll(tempState)
+                    } catch (e: Throwable) {
+                        Log.w("EditorScreen", "processAll preview failed: ${e.message}")
+                        out = null
+                    }
+
+                    if (out == null) {
+                        try {
+                            var bmp = src
+                            bmp = ImageProcessor.applyFilterParams(bmp, tempState.filter)
+                            bmp = ImageProcessor.applyFilterAParams(bmp, tempState.filterA)
+                            bmp = ImageProcessor.applyFilterBParams(bmp, tempState.filterB)
+                            bmp = ImageProcessor.applyEnhanceParams(bmp, tempState.enhance)
+                            if (tempState.layers.isNotEmpty()) {
+                                val layeredState = tempState.copy(baseBitmap = bmp)
+                                out = ImageProcessor.processAll(layeredState) ?: bmp
+                            } else out = bmp
+                        } catch (e: Throwable) {
+                            Log.e("EditorScreen", "fallback preview processing failed: ${e.message}")
+                            out = null
+                        }
+                    }
+                    out
+                }
+
+                previewImageState.value = processed?.asImageBitmap()
+                Log.d("EditorScreen", "Preview update finished - success=${processed != null}")
             }
     }
 
@@ -158,7 +203,6 @@ fun EditorScreen(onExport: () -> Unit, onBack: () -> Unit, viewModel: EditorView
     }
 
     // Disk-backed LRU cache for persistent thumbnails
-    val ctx = LocalContext.current
     val diskCache = remember {
         DiskLruImageCache(
             File(ctx.cacheDir, "preset_thumbs"),
@@ -181,12 +225,16 @@ fun EditorScreen(onExport: () -> Unit, onBack: () -> Unit, viewModel: EditorView
             // Normalize to ARGB_8888 and scale to a small preview size to avoid OOM and ensure processing works
             val maxDim = 160
             val basePreview = withContext(Dispatchers.Default) {
-                val scale = maxDim.toFloat() / kotlin.math.max(raw.width, raw.height).coerceAtLeast(1)
+                val scale =
+                    maxDim.toFloat() / kotlin.math.max(raw.width, raw.height).coerceAtLeast(1)
                 val w = (raw.width * scale).toInt().coerceAtLeast(1)
                 val h = (raw.height * scale).toInt().coerceAtLeast(1)
                 val scaled = Bitmap.createScaledBitmap(raw, w, h, true)
                 // ensure ARGB_8888 config
-                if (scaled.config == Bitmap.Config.ARGB_8888) scaled else scaled.copy(Bitmap.Config.ARGB_8888, true)
+                if (scaled.config == Bitmap.Config.ARGB_8888) scaled else scaled.copy(
+                    Bitmap.Config.ARGB_8888,
+                    true
+                )
             }
             if (basePreview != null) {
                 withContext(Dispatchers.Default) {
@@ -202,7 +250,10 @@ fun EditorScreen(onExport: () -> Unit, onBack: () -> Unit, viewModel: EditorView
                             try {
                                 out = ImageProcessor.processAll(tempState)
                             } catch (e: Throwable) {
-                                Log.w("EditorScreen", "processAll failed for preset ${preset.id}: ${e.message}")
+                                Log.w(
+                                    "EditorScreen",
+                                    "processAll failed for preset ${preset.id}: ${e.message}"
+                                )
                                 out = null
                             }
                             if (out == null) {
@@ -214,7 +265,10 @@ fun EditorScreen(onExport: () -> Unit, onBack: () -> Unit, viewModel: EditorView
                                     bmp = ImageProcessor.applyFilterBParams(bmp, tempState.filterB)
                                     out = bmp
                                 } catch (e: Throwable) {
-                                    Log.e("EditorScreen", "fallback processing failed for preset ${preset.id}: ${e.message}")
+                                    Log.e(
+                                        "EditorScreen",
+                                        "fallback processing failed for preset ${preset.id}: ${e.message}"
+                                    )
                                     out = null
                                 }
                             }
@@ -223,10 +277,16 @@ fun EditorScreen(onExport: () -> Unit, onBack: () -> Unit, viewModel: EditorView
                                 drawablePreviewCache[preset.id] = out.asImageBitmap()
                                 Log.d("EditorScreen", "Generated drawable preview for ${preset.id}")
                             } else {
-                                Log.w("EditorScreen", "Could not generate drawable preview for ${preset.id}")
+                                Log.w(
+                                    "EditorScreen",
+                                    "Could not generate drawable preview for ${preset.id}"
+                                )
                             }
                         } catch (e: Throwable) {
-                            Log.e("EditorScreen", "Unexpected error processing preset ${preset.id}: ${e.message}")
+                            Log.e(
+                                "EditorScreen",
+                                "Unexpected error processing preset ${preset.id}: ${e.message}"
+                            )
                         }
                     }
                 }
@@ -683,14 +743,13 @@ fun EditorScreen(onExport: () -> Unit, onBack: () -> Unit, viewModel: EditorView
                                         .height(300.dp)
                                 ) {
                                     // Grid or list of preset thumbnails
-                                    val presets = FILTER_PRESETS
                                     LazyHorizontalGrid(
                                         rows = GridCells.Adaptive(minSize = 128.dp),
                                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                                         verticalArrangement = Arrangement.spacedBy(8.dp),
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
-                                        items(presets) { preset ->
+                                        items(FILTER_PRESETS, key = { it.id }) { preset ->
                                             val bitmap = presetPreviews[preset.id]
                                             val isSelected = false
                                             Box(
@@ -699,14 +758,36 @@ fun EditorScreen(onExport: () -> Unit, onBack: () -> Unit, viewModel: EditorView
                                                     .clip(RoundedCornerShape(8.dp))
                                                     .background(if (isSelected) Primary else Secondary)
                                                     .clickable {
-                                                        viewModel.applyFilterA(
-                                                            preset.filterA ?: state.value.filterA
-                                                        )
-                                                        viewModel.applyFilterB(
-                                                            preset.filterB ?: state.value.filterB
-                                                        )
+                                                        // Ensure we have a baseBitmap to process. If not, try to load from imageUri then apply preset.
+                                                        coroutineScope.launch {
+                                                            val current = viewModel.state.value
+                                                            if (current.baseBitmap == null && current.imageUri != null) {
+                                                                try {
+                                                                    val loaded = withContext(Dispatchers.IO) {
+                                                                        ctx.contentResolver.openInputStream(current.imageUri!!)?.use { ins ->
+                                                                            val opts = BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888 }
+                                                                            val decoded = BitmapFactory.decodeStream(ins, null, opts) ?: return@use null
+                                                                            // scale down to a reasonable size for editing
+                                                                            val maxDim = 1200
+                                                                            val scale = maxDim.toFloat() / kotlin.math.max(decoded.width, decoded.height)
+                                                                            if (scale < 1f) Bitmap.createScaledBitmap(decoded, (decoded.width * scale).toInt(), (decoded.height * scale).toInt(), true) else decoded
+                                                                        }
+                                                                    }
+                                                                    if (loaded != null) {
+                                                                        viewModel.setBaseBitmap(loaded)
+                                                                    }
+                                                                } catch (e: Throwable) {
+                                                                    Log.w("EditorScreen", "Failed loading baseBitmap for preset apply: ${e.message}")
+                                                                }
+                                                            }
+
+                                                            // Now apply the preset filters (works whether base was already present or just set)
+                                                            viewModel.applyFilter(preset.filter ?: viewModel.state.value.filter)
+                                                            viewModel.applyFilterA(preset.filterA ?: viewModel.state.value.filterA)
+                                                            viewModel.applyFilterB(preset.filterB ?: viewModel.state.value.filterB)
+                                                        }
                                                     },
-                                                contentAlignment = Alignment.Center
+                                                 contentAlignment = Alignment.Center
                                             ) {
                                                 if (bitmap != null) {
                                                     Image(
@@ -715,40 +796,22 @@ fun EditorScreen(onExport: () -> Unit, onBack: () -> Unit, viewModel: EditorView
                                                         modifier = Modifier.fillMaxSize()
                                                     )
                                                 } else {
-                                                    // Show processed drawable preview if available; otherwise static drawable
                                                     val processedDrawable =
                                                         drawablePreviewCache[preset.id]
-//                                                    if (processedDrawable != null) {
-                                                        Box(
-                                                            modifier = Modifier
-                                                                .fillMaxSize()
-                                                                .background(Color(0xFF1E293B))
-                                                        ) {
-                                                            processedDrawable?.let {
-                                                                Image(
-                                                                    bitmap = it,
-                                                                    contentDescription = "preset preview",
-                                                                    contentScale = ContentScale.Crop,
-                                                                    modifier = Modifier.align(Alignment.Center)
-                                                                )
-                                                            }
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .fillMaxSize()
+                                                            .background(Color(0xFF1E293B))
+                                                    ) {
+                                                        processedDrawable?.let {
+                                                            Image(
+                                                                bitmap = it,
+                                                                contentDescription = "preset preview",
+                                                                contentScale = ContentScale.Crop,
+                                                                modifier = Modifier.align(Alignment.Center)
+                                                            )
                                                         }
-//                                                    } else {
-//                                                        val previewPainter =
-//                                                            painterResource(id = R.drawable.ic_preview_filter)
-//                                                        Box(
-//                                                            modifier = Modifier
-//                                                                .fillMaxSize()
-//                                                                .background(Color(0xFF1E293B))
-//                                                        ) {
-//                                                            Image(
-//                                                                painter = previewPainter,
-//                                                                contentDescription = "preset preview",
-//                                                                contentScale = ContentScale.Crop,
-//                                                                modifier = Modifier.align(Alignment.Center)
-//                                                            )
-//                                                        }
-//                                                    }
+                                                    }
                                                     // If generation in progress show a small spinner overlay on top
                                                     if (isGeneratingPreviews.value) {
                                                         Box(
@@ -787,11 +850,12 @@ fun EditorScreen(onExport: () -> Unit, onBack: () -> Unit, viewModel: EditorView
                                 .padding(horizontal = 30.dp),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            androidx.compose.material3.Button(onClick = {
+
+                            Button(onClick = {
                                 viewModel.applyFilterA(com.devsapiens.phonemagic.model.FilterAParams())
                                 viewModel.applyFilterB(com.devsapiens.phonemagic.model.FilterBParams())
                             }) { Text("Reset") }
-                            androidx.compose.material3.Button(onClick = {
+                            Button(onClick = {
                                 showFilters = false
                             }) { Text("Done") }
                         }

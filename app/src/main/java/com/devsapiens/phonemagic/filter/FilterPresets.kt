@@ -91,5 +91,12 @@ val FILTER_PRESETS = listOf(
         displayName = "Filtro Niebla",
         filter = FilterParams(brightness = 0.12f, contrast = 0.85f, saturation = 0.85f),
         filterA = FilterAParams(intensity = 0.05f, warmth = -0.05f, vignette = 0.06f)
+    ),
+    // New: Blanco y Negro preset
+    FilterPreset(
+        id = "bw",
+        displayName = "Blanco y Negro",
+        filter = FilterParams(brightness = 0f, contrast = 1.05f, saturation = 0f),
+        filterA = FilterAParams(intensity = 0f, warmth = 0f, vignette = 0.02f)
     )
 )
