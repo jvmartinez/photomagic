@@ -2,10 +2,12 @@ package com.devsapiens.phonemagic.util
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.content.res.Resources
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.net.URLEncoder
+import com.devsapiens.phonemagic.R
 
 /**
  * Simple disk LRU cache implemented by storing files in a directory and evicting oldest files
