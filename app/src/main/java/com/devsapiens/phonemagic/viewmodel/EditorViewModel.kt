@@ -23,6 +23,11 @@ class EditorViewModel : ViewModel() {
     private val undoStack = ArrayDeque<EditorState>()
     private val redoStack = ArrayDeque<EditorState>()
 
+    fun clearState() {
+        _state.value = EditorState()
+        clearHistory()
+    }
+
     fun setImageUri(uri: Uri?) {
         updateState { it.copy(imageUri = uri) }
         clearHistory()
@@ -113,7 +118,7 @@ class EditorViewModel : ViewModel() {
 
     // Export: render baseBitmap with current state filters using ImageProcessor
     fun exportBitmap(): Bitmap? {
-        return ImageProcessor.processAll(_state.value)
+        return ImageProcessor.processAll(_state.value, highQuality = true)
     }
 
     /**
@@ -121,7 +126,7 @@ class EditorViewModel : ViewModel() {
      * This is CPU-intensive and should be called from a background dispatcher.
      */
     fun bakeFilters(): Bitmap? {
-        return ImageProcessor.processAll(_state.value)
+        return ImageProcessor.processAll(_state.value, highQuality = true)
     }
 
     /**

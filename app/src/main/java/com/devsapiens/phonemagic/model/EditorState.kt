@@ -7,7 +7,11 @@ data class FilterParams(
     val brightness: Float = 0f, // -1..1
     val contrast: Float = 1f,   // 0..2
     val saturation: Float = 1f, // 0..2
-    val sepia: Float = 0f       // 0..1 intensity
+    val sepia: Float = 0f,      // 0..1 intensity
+    // Optional stylized filter id (e.g. "retro", "vhs", "polaroid", "year90", "grain", "film")
+    val stylize: String? = null,
+    // Intensity for the stylized effect (0..1)
+    val stylizeIntensity: Float = 1f
 )
 
 // New Filter A params: a simple aesthetic filter with intensity, warmth and vignette

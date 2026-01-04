@@ -13,6 +13,7 @@ import com.devsapiens.phonemagic.model.FilterAParams
 import com.devsapiens.phonemagic.model.FilterBParams
 import com.devsapiens.phonemagic.model.FilterParams
 import com.devsapiens.phonemagic.model.EditorState
+
 import java.util.concurrent.Executors
 
 object ImageProcessor {
@@ -231,11 +232,31 @@ object ImageProcessor {
     }
 
     // Compose all processing steps using the EditorState
-    fun processAll(state: EditorState): Bitmap? {
+    // highQuality: when true, use higher-quality (and heavier) operations where available (e.g. blur)
+    fun processAll(state: EditorState, highQuality: Boolean = false): Bitmap? {
         val base = state.baseBitmap ?: return null
         var bmp = base
         // Apply basic filter params
         bmp = applyFilterParams(bmp, state.filter)
+
+        // Apply optional stylized filter if requested in FilterParams
+        val stylizeId = state.filter.stylize
+        if (!stylizeId.isNullOrBlank()) {
+            try {
+                bmp = when (stylizeId) {
+                    "retro" -> StylizedFilters.retro(bmp, state.filter.stylizeIntensity)
+                    "vhs" -> StylizedFilters.vhs(bmp, state.filter.stylizeIntensity)
+                    "polaroid" -> StylizedFilters.polaroid(bmp, state.filter.stylizeIntensity)
+                    "year90" -> StylizedFilters.year90(bmp, state.filter.stylizeIntensity)
+                    "grain" -> StylizedFilters.grain(bmp, state.filter.stylizeIntensity)
+                    "blur" -> if (highQuality) StylizedFilters.blurHighQuality(bmp, state.filter.stylizeIntensity) else StylizedFilters.blur(bmp, state.filter.stylizeIntensity)
+                    "film" -> StylizedFilters.film(bmp, state.filter.stylizeIntensity)
+                    else -> bmp
+                }
+            } catch (_: Throwable) {
+                // ignore stylize errors and continue
+            }
+        }
         // Apply Filter A
         bmp = applyFilterAParams(bmp, state.filterA)
         // Apply Filter B
