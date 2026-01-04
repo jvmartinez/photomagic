@@ -9,6 +9,7 @@ import android.os.Environment
 import android.provider.MediaStore
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.devsapiens.phonemagic.component.slider.SliderEnum
 import com.devsapiens.phonemagic.model.EditorState
 import com.devsapiens.phonemagic.model.FilterParams
 import com.devsapiens.phonemagic.model.FilterAParams
@@ -43,6 +44,13 @@ class EditorViewModel : ViewModel() {
 
     private val _saveStatus = MutableStateFlow<SaveStatus>(SaveStatus.Idle)
     val saveStatus: StateFlow<SaveStatus> = _saveStatus.asStateFlow()
+
+    private val _selectedSetting = MutableStateFlow<SliderEnum>(SliderEnum.None)
+    val selectedSetting: StateFlow<SliderEnum> = _selectedSetting
+
+    fun setSelectedSetting(setting: SliderEnum) {
+        _selectedSetting.value = setting
+    }
 
     fun clearState() {
         _state.value = EditorState()

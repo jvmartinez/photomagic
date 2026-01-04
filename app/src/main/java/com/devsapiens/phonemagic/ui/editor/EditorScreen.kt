@@ -21,16 +21,19 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyHorizontalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -69,9 +72,22 @@ import coil.compose.rememberAsyncImagePainter
 import com.devsapiens.phonemagic.R
 import com.devsapiens.phonemagic.component.button.ButtonWithLabelComponent
 import com.devsapiens.phonemagic.component.button.TypeLabel
+import com.devsapiens.phonemagic.component.button.cardComponet.CardBasicComponent
+import com.devsapiens.phonemagic.component.slider.SliderEditComponent
+import com.devsapiens.phonemagic.component.slider.SliderEnum
+import com.devsapiens.phonemagic.component.slider.SliderEnum.Brightness
+import com.devsapiens.phonemagic.component.slider.SliderEnum.Clarity
+import com.devsapiens.phonemagic.component.slider.SliderEnum.Constant
+import com.devsapiens.phonemagic.component.slider.SliderEnum.Dispersion
+import com.devsapiens.phonemagic.component.slider.SliderEnum.Explosion
+import com.devsapiens.phonemagic.component.slider.SliderEnum.Grain
+import com.devsapiens.phonemagic.component.slider.SliderEnum.None
+import com.devsapiens.phonemagic.component.slider.SliderEnum.Saturation
+import com.devsapiens.phonemagic.component.slider.SliderEnum.Shadows
+import com.devsapiens.phonemagic.component.slider.SliderEnum.Vibration
+import com.devsapiens.phonemagic.component.slider.SliderEnum.Warmth
 import com.devsapiens.phonemagic.filter.FILTER_PRESETS
 import com.devsapiens.phonemagic.processor.ImageProcessor
-import com.devsapiens.phonemagic.ui.theme.Coral
 import com.devsapiens.phonemagic.ui.theme.Primary
 import com.devsapiens.phonemagic.ui.theme.Secondary
 import com.devsapiens.phonemagic.util.DiskLruImageCache
@@ -87,10 +103,9 @@ import java.io.File
 @SuppressLint("UseKtx", "LocalContextResourcesRead")
 @OptIn(ExperimentalMaterial3Api::class, FlowPreview::class)
 @Composable
-fun EditorScreen(onExport: () -> Unit, onBack: () -> Unit, viewModel: EditorViewModel) {
+fun EditorScreen(onBack: () -> Unit, viewModel: EditorViewModel) {
     val state by viewModel.state.collectAsState()
     var showFilters by remember { mutableStateOf(false) }
-    var activeTab by remember { mutableStateOf("Categories") } // "A", "B" or "Categories"
     val coroutineScope = rememberCoroutineScope()
     val drawablePreviewCache = remember { mutableStateMapOf<String, ImageBitmap>() }
 
@@ -101,10 +116,7 @@ fun EditorScreen(onExport: () -> Unit, onBack: () -> Unit, viewModel: EditorView
         val greenScale = 1f
         val i = intensity.coerceIn(0f, 1f)
         matrix.setToScale(
-            1f + (redScale - 1f) * i,
-            1f + (greenScale - 1f) * i,
-            1f + (blueScale - 1f) * i,
-            1f
+            1f + (redScale - 1f) * i, 1f + (greenScale - 1f) * i, 1f + (blueScale - 1f) * i, 1f
         )
         val sat = 1f + 0.35f * i
         val satMatrix = ColorMatrix()
@@ -115,6 +127,9 @@ fun EditorScreen(onExport: () -> Unit, onBack: () -> Unit, viewModel: EditorView
 
     val previewImageState = remember { mutableStateOf<ImageBitmap?>(null) }
     val ctx = LocalContext.current
+    var showAdjustments by remember { mutableStateOf(false) }
+    val selectedSetting by viewModel.selectedSetting.collectAsState()
+
 
     BackHandler(true) {
         viewModel.clearState()
@@ -122,114 +137,108 @@ fun EditorScreen(onExport: () -> Unit, onBack: () -> Unit, viewModel: EditorView
     }
 
     LaunchedEffect(Unit) {
-        snapshotFlow { state }
-            .debounce(120)
-            .collectLatest { s ->
-                Log.d(
-                    "EditorScreen",
-                    "Preview update triggered - baseBitmap=${s.baseBitmap != null}, filter=${s.filter}, filterA=${s.filterA}, filterB=${s.filterB}"
-                )
-                val maxDim = 800
-                val srcBitmap: Bitmap? = withContext(Dispatchers.IO) {
-                    s.baseBitmap ?: run {
-                        val uri = s.imageUri ?: return@withContext null
-                        try {
-                            ctx.contentResolver.openInputStream(uri)?.use { ins ->
-                                val opts = BitmapFactory.Options()
-                                    .apply { inPreferredConfig = Bitmap.Config.ARGB_8888 }
-                                val decoded =
-                                    BitmapFactory.decodeStream(ins, null, opts) ?: return@use null
-                                val scale = maxDim.toFloat() / kotlin.math.max(
-                                    decoded.width,
-                                    decoded.height
-                                ).coerceAtLeast(1)
-                                if (scale < 1f) Bitmap.createScaledBitmap(
-                                    decoded,
-                                    (decoded.width * scale).toInt(),
-                                    (decoded.height * scale).toInt(),
-                                    true
-                                ) else decoded
-                            }
-                        } catch (e: Throwable) {
-                            Log.w(
-                                "EditorScreen",
-                                "Failed to decode imageUri for preview: ${e.message}"
-                            )
-                            null
-                        }
-                    }
-                }
-
-                if (srcBitmap == null) {
-                    previewImageState.value = null
-                    return@collectLatest
-                }
-
-                val processed = withContext(Dispatchers.Default) {
-                    val src = if (kotlin.math.max(srcBitmap.width, srcBitmap.height) > maxDim) {
-                        val scale =
-                            maxDim.toFloat() / kotlin.math.max(srcBitmap.width, srcBitmap.height)
-                        Bitmap.createScaledBitmap(
-                            srcBitmap,
-                            (srcBitmap.width * scale).toInt(),
-                            (srcBitmap.height * scale).toInt(),
-                            true
-                        )
-                    } else {
-                        srcBitmap
-                    }
-
-                    if (s.baseBitmap == null) {
-                        try {
-                            withContext(Dispatchers.Main) {
-                                viewModel.setBaseBitmap(src)
-                            }
-                        } catch (_: Throwable) {
-                        }
-                    }
-
-                    val tempState = s.copy(baseBitmap = src)
-                    var out: Bitmap? = null
+        snapshotFlow { state }.debounce(120).collectLatest { s ->
+            Log.d(
+                "EditorScreen",
+                "Preview update triggered - baseBitmap=${s.baseBitmap != null}, filter=${s.filter}, filterA=${s.filterA}, filterB=${s.filterB}"
+            )
+            val maxDim = 800
+            val srcBitmap: Bitmap? = withContext(Dispatchers.IO) {
+                s.baseBitmap ?: run {
+                    val uri = s.imageUri ?: return@withContext null
                     try {
-                        out = ImageProcessor.processAll(tempState)
+                        ctx.contentResolver.openInputStream(uri)?.use { ins ->
+                            val opts = BitmapFactory.Options()
+                                .apply { inPreferredConfig = Bitmap.Config.ARGB_8888 }
+                            val decoded =
+                                BitmapFactory.decodeStream(ins, null, opts) ?: return@use null
+                            val scale = maxDim.toFloat() / kotlin.math.max(
+                                decoded.width, decoded.height
+                            ).coerceAtLeast(1)
+                            if (scale < 1f) Bitmap.createScaledBitmap(
+                                decoded,
+                                (decoded.width * scale).toInt(),
+                                (decoded.height * scale).toInt(),
+                                true
+                            ) else decoded
+                        }
                     } catch (e: Throwable) {
-                        Log.w("EditorScreen", "processAll preview failed: ${e.message}")
+                        Log.w(
+                            "EditorScreen", "Failed to decode imageUri for preview: ${e.message}"
+                        )
+                        null
+                    }
+                }
+            }
+
+            if (srcBitmap == null) {
+                previewImageState.value = null
+                return@collectLatest
+            }
+
+            val processed = withContext(Dispatchers.Default) {
+                val src = if (kotlin.math.max(srcBitmap.width, srcBitmap.height) > maxDim) {
+                    val scale =
+                        maxDim.toFloat() / kotlin.math.max(srcBitmap.width, srcBitmap.height)
+                    Bitmap.createScaledBitmap(
+                        srcBitmap,
+                        (srcBitmap.width * scale).toInt(),
+                        (srcBitmap.height * scale).toInt(),
+                        true
+                    )
+                } else {
+                    srcBitmap
+                }
+
+                if (s.baseBitmap == null) {
+                    try {
+                        withContext(Dispatchers.Main) {
+                            viewModel.setBaseBitmap(src)
+                        }
+                    } catch (_: Throwable) {
+                    }
+                }
+
+                val tempState = s.copy(baseBitmap = src)
+                var out: Bitmap? = null
+                try {
+                    out = ImageProcessor.processAll(tempState)
+                } catch (e: Throwable) {
+                    Log.w("EditorScreen", "processAll preview failed: ${e.message}")
+                    out = null
+                }
+
+                if (out == null) {
+                    try {
+                        var bmp = src
+                        bmp = ImageProcessor.applyFilterParams(bmp, tempState.filter)
+                        bmp = ImageProcessor.applyFilterAParams(bmp, tempState.filterA)
+                        bmp = ImageProcessor.applyFilterBParams(bmp, tempState.filterB)
+                        bmp = ImageProcessor.applyEnhanceParams(bmp, tempState.enhance)
+                        if (tempState.layers.isNotEmpty()) {
+                            val layeredState = tempState.copy(baseBitmap = bmp)
+                            out = ImageProcessor.processAll(layeredState) ?: bmp
+                        } else out = bmp
+                    } catch (e: Throwable) {
+                        Log.e(
+                            "EditorScreen", "fallback preview processing failed: ${e.message}"
+                        )
                         out = null
                     }
-
-                    if (out == null) {
-                        try {
-                            var bmp = src
-                            bmp = ImageProcessor.applyFilterParams(bmp, tempState.filter)
-                            bmp = ImageProcessor.applyFilterAParams(bmp, tempState.filterA)
-                            bmp = ImageProcessor.applyFilterBParams(bmp, tempState.filterB)
-                            bmp = ImageProcessor.applyEnhanceParams(bmp, tempState.enhance)
-                            if (tempState.layers.isNotEmpty()) {
-                                val layeredState = tempState.copy(baseBitmap = bmp)
-                                out = ImageProcessor.processAll(layeredState) ?: bmp
-                            } else out = bmp
-                        } catch (e: Throwable) {
-                            Log.e(
-                                "EditorScreen",
-                                "fallback preview processing failed: ${e.message}"
-                            )
-                            out = null
-                        }
-                    }
-                    out
                 }
-
-                previewImageState.value = processed?.asImageBitmap()
-                Log.d("EditorScreen", "Preview update finished - success=${processed != null}")
+                out
             }
+
+            previewImageState.value = processed?.asImageBitmap()
+            Log.d("EditorScreen", "Preview update finished - success=${processed != null}")
+        }
     }
     val presetCache = remember {
         LruCache<String, ImageBitmap>(40)
     }
     val diskCache = remember {
         DiskLruImageCache(
-            File(ctx.cacheDir, "preset_thumbs"),
-            maxSizeBytes = 50L * 1024L * 1024L
+            File(ctx.cacheDir, "preset_thumbs"), maxSizeBytes = 50L * 1024L * 1024L
         )
     }
 
@@ -260,8 +269,7 @@ fun EditorScreen(onExport: () -> Unit, onBack: () -> Unit, viewModel: EditorView
                         val h = (raw.height * scale).toInt().coerceAtLeast(1)
                         val scaled = Bitmap.createScaledBitmap(raw, w, h, true)
                         if (scaled.config == Bitmap.Config.ARGB_8888) scaled else scaled.copy(
-                            Bitmap.Config.ARGB_8888,
-                            true
+                            Bitmap.Config.ARGB_8888, true
                         )
                     }
 
@@ -381,26 +389,12 @@ fun EditorScreen(onExport: () -> Unit, onBack: () -> Unit, viewModel: EditorView
                     )
                 }
             })
-        },
-        floatingActionButton = {
-            FloatingActionButton(
-                containerColor = Coral,
-                onClick = {
-                    viewModel.saveEditedImage(ctx, "photo_magic_edited_image")
-                }
-            ) {
-                Image(
-                    painter = painterResource(id = R.drawable.ic_file_save_24),
-                    contentDescription = "Save",
-                )
-            }
         }
     ) { inner ->
         Box(
             modifier = Modifier
                 .padding(inner)
-                .fillMaxSize(),
-            contentAlignment = Alignment.TopCenter
+                .fillMaxSize(), contentAlignment = Alignment.TopCenter
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Card(
@@ -414,27 +408,25 @@ fun EditorScreen(onExport: () -> Unit, onBack: () -> Unit, viewModel: EditorView
                     )
                 ) {
                     Column {
+                        Spacer(Modifier.height(8.dp))
                         Row(
                             horizontalArrangement = Arrangement.SpaceEvenly,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             ButtonWithLabelComponent(
-                                label = "Undo",
-                                icon = R.drawable.ic_undo_24
+                                label = "Undo", icon = R.drawable.ic_undo_24
                             ) {
                                 viewModel.undo()
                             }
                             Spacer(Modifier.width(8.dp))
                             ButtonWithLabelComponent(
-                                label = "Redo",
-                                icon = R.drawable.ic_redo_24
+                                label = "Redo", icon = R.drawable.ic_redo_24
                             ) {
                                 viewModel.redo()
                             }
                             Spacer(Modifier.width(8.dp))
                             ButtonWithLabelComponent(
-                                label = "Reset",
-                                icon = R.drawable.ic_reset_image_24
+                                label = "Reset", icon = R.drawable.ic_reset_image_24
                             ) {
                                 viewModel.reset()
                             }
@@ -449,8 +441,7 @@ fun EditorScreen(onExport: () -> Unit, onBack: () -> Unit, viewModel: EditorView
 
                             } else {
                                 ButtonWithLabelComponent(
-                                    label = "Aplicar",
-                                    icon = R.drawable.ic_check_small_24
+                                    label = "Aplicar", icon = R.drawable.ic_check_small_24
                                 ) {
                                     isBaking = true
                                     coroutineScope.launch {
@@ -464,6 +455,7 @@ fun EditorScreen(onExport: () -> Unit, onBack: () -> Unit, viewModel: EditorView
                                 }
                             }
                         }
+                        Spacer(Modifier.height(8.dp))
                     }
                 }
                 Spacer(Modifier.width(8.dp))
@@ -508,8 +500,7 @@ fun EditorScreen(onExport: () -> Unit, onBack: () -> Unit, viewModel: EditorView
                                             )
                                             drawRect(brush = brush)
                                         }
-                                    }
-                            ) {
+                                    }) {
                                 Image(
                                     painter = painter,
                                     contentDescription = "Preview",
@@ -547,296 +538,6 @@ fun EditorScreen(onExport: () -> Unit, onBack: () -> Unit, viewModel: EditorView
                             showFilters = false
                         }
 
-//                                Row(
-//                                    modifier = Modifier.fillMaxWidth(),
-//                                    horizontalArrangement = Arrangement.SpaceBetween,
-//                                    verticalAlignment = Alignment.CenterVertically
-//                                ) {
-//                                    Text(
-//                                        "Filtros",
-//                                        style = MaterialTheme.typography.titleLarge,
-//                                        color = Color.White
-//                                    )
-//                                    androidx.compose.material3.Button(onClick = {
-//                                        showFilters = false
-//                                    }) { Text("Cerrar") }
-//                                }
-
-//                                Spacer(Modifier.height(12.dp))
-
-//                                Row(
-//                                    modifier = Modifier.fillMaxWidth(),
-//                                    horizontalArrangement = Arrangement.SpaceEvenly
-//                                ) {
-//                                    Button(onClick = { activeTab = "A" }) {
-//                                        Text(
-//                                            "A"
-//                                        )
-//                                    }
-//                                    Button(onClick = { activeTab = "B" }) {
-//                                        Text(
-//                                            "B"
-//                                        )
-//                                    }
-//                                    Button(onClick = {
-//                                        activeTab = "Categories"
-//                                    }) { Text("Categorias") }
-//                                }
-//                                when (activeTab) {
-//                                    "A" -> {
-//                                        Text(
-//                                            "Intensity: ${
-//                                                String.format(
-//                                                    "%.2f",
-//                                                    state.filterA.intensity
-//                                                )
-//                                            }", color = Color.White
-//                                        )
-//                                        Slider(
-//                                            value = state.filterA.intensity,
-//                                            onValueChange = {
-//                                                viewModel.applyFilterA(
-//                                                    state.filterA.copy(intensity = it)
-//                                                )
-//                                            },
-//                                            valueRange = 0f..1f
-//                                        )
-//                                        Spacer(Modifier.height(8.dp))
-//
-//                                        Text(
-//                                            "Warmth: ${String.format("%.2f", state.filterA.warmth)}",
-//                                            color = Color.White
-//                                        )
-//                                        Slider(
-//                                            value = state.filterA.warmth,
-//                                            onValueChange = {
-//                                                viewModel.applyFilterA(
-//                                                    state.filterA.copy(warmth = it)
-//                                                )
-//                                            },
-//                                            valueRange = -1f..1f
-//                                        )
-//                                        Spacer(Modifier.height(8.dp))
-//
-//                                        Text(
-//                                            "Vignette: ${
-//                                                String.format(
-//                                                    "%.2f",
-//                                                    state.filterA.vignette
-//                                                )
-//                                            }", color = Color.White
-//                                        )
-//                                        Slider(
-//                                            value = state.filterA.vignette,
-//                                            onValueChange = {
-//                                                viewModel.applyFilterA(
-//                                                    state.filterA.copy(vignette = it)
-//                                                )
-//                                            },
-//                                            valueRange = 0f..1f
-//                                        )
-//                                    }
-//
-//                                    "B" -> {
-//                                        // Filter B controls
-//                                        Text(
-//                                            "Strength: ${
-//                                                String.format(
-//                                                    "%.2f",
-//                                                    state.filterB.strength
-//                                                )
-//                                            }", color = Color.White
-//                                        )
-//                                        Slider(
-//                                            value = state.filterB.strength,
-//                                            onValueChange = {
-//                                                viewModel.applyFilterB(
-//                                                    state.filterB.copy(strength = it)
-//                                                )
-//                                            },
-//                                            valueRange = 0f..1f
-//                                        )
-//                                        Spacer(Modifier.height(8.dp))
-//
-//                                        Text("Highlights tint", color = Color.White)
-//                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-//                                            val presets = listOf(0xFFFFFF, 0xFFE3B7, 0xA7F3D0, 0xBDE0FF)
-//                                            presets.forEach { colorInt ->
-//                                                Box(
-//                                                    modifier = Modifier
-//                                                        .size(36.dp)
-//                                                        .clip(RoundedCornerShape(8.dp))
-//                                                        .background(Color(colorInt))
-//                                                        .clickable {
-//                                                            viewModel.applyFilterB(
-//                                                                state.filterB.copy(
-//                                                                    highlightsTint = colorInt
-//                                                                )
-//                                                            )
-//                                                        }
-//                                                )
-//                                            }
-//                                        }
-//
-//                                        Spacer(Modifier.height(8.dp))
-//                                        Text("Shadows tint", color = Color.White)
-//                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-//                                            val presets = listOf(0x000000, 0x423F3E, 0x082F2E, 0x2B1B3D)
-//                                            presets.forEach { colorInt ->
-//                                                Box(
-//                                                    modifier = Modifier
-//                                                        .size(36.dp)
-//                                                        .clip(RoundedCornerShape(8.dp))
-//                                                        .background(Color(colorInt))
-//                                                        .clickable {
-//                                                            viewModel.applyFilterB(
-//                                                                state.filterB.copy(
-//                                                                    shadowsTint = colorInt
-//                                                                )
-//                                                            )
-//                                                        }
-//                                                )
-//                                            }
-//                                        }
-//                                    }
-//
-//                                    "Categories" -> {
-//                                        Column(
-//                                            modifier = Modifier
-//                                                .fillMaxWidth()
-//                                                .height(300.dp)
-//                                        ) {
-//                                            LazyHorizontalGrid(
-//                                                rows = GridCells.Adaptive(minSize = 128.dp),
-//                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-//                                                verticalArrangement = Arrangement.spacedBy(8.dp),
-//                                                modifier = Modifier.fillMaxWidth()
-//                                            ) {
-//                                                items(FILTER_PRESETS, key = { it.id }) { preset ->
-//                                                    val drawablePreview = drawablePreviewCache[preset.id]
-//                                                    val userThumb = presetPreviews[preset.id]
-//                                                    val isSelected = false
-//                                                    Box(
-//                                                        modifier = Modifier
-//                                                            .size(128.dp)
-//                                                            .clip(RoundedCornerShape(8.dp))
-//                                                            .background(if (isSelected) Primary else Secondary)
-//                                                            .clickable {
-//                                                                // Ensure we have a baseBitmap to process. If not, try to load from imageUri then apply preset.
-//                                                                coroutineScope.launch {
-//                                                                    val current = viewModel.state.value
-//                                                                    if (current.baseBitmap == null && current.imageUri != null) {
-//                                                                        try {
-//                                                                            val loaded =
-//                                                                                withContext(Dispatchers.IO) {
-//                                                                                    ctx.contentResolver.openInputStream(
-//                                                                                        current.imageUri
-//                                                                                    )?.use { ins ->
-//                                                                                        val opts =
-//                                                                                            BitmapFactory.Options()
-//                                                                                                .apply {
-//                                                                                                    inPreferredConfig =
-//                                                                                                        Bitmap.Config.ARGB_8888
-//                                                                                                }
-//                                                                                        val decoded =
-//                                                                                            BitmapFactory.decodeStream(
-//                                                                                                ins,
-//                                                                                                null,
-//                                                                                                opts
-//                                                                                            )
-//                                                                                                ?: return@use null
-//                                                                                        // scale down to a reasonable size for editing
-//                                                                                        val maxDim = 1200
-//                                                                                        val scale =
-//                                                                                            maxDim.toFloat() / kotlin.math.max(
-//                                                                                                decoded.width,
-//                                                                                                decoded.height
-//                                                                                            )
-//                                                                                        if (scale < 1f) Bitmap.createScaledBitmap(
-//                                                                                            decoded,
-//                                                                                            (decoded.width * scale).toInt(),
-//                                                                                            (decoded.height * scale).toInt(),
-//                                                                                            true
-//                                                                                        ) else decoded
-//                                                                                    }
-//                                                                                }
-//                                                                            if (loaded != null) {
-//                                                                                viewModel.setBaseBitmap(
-//                                                                                    loaded
-//                                                                                )
-//                                                                            }
-//                                                                        } catch (e: Throwable) {
-//                                                                            Log.w(
-//                                                                                "EditorScreen",
-//                                                                                "Failed loading baseBitmap for preset apply: ${e.message}"
-//                                                                            )
-//                                                                        }
-//                                                                    }
-//
-//                                                                    // Now apply the preset filters (works whether base was already present or just set)
-//                                                                    viewModel.applyFilter(
-//                                                                        preset.filter
-//                                                                            ?: viewModel.state.value.filter
-//                                                                    )
-//                                                                    viewModel.applyFilterA(
-//                                                                        preset.filterA
-//                                                                            ?: viewModel.state.value.filterA
-//                                                                    )
-//                                                                    viewModel.applyFilterB(
-//                                                                        preset.filterB
-//                                                                            ?: viewModel.state.value.filterB
-//                                                                    )
-//                                                                }
-//                                                            },
-//                                                        contentAlignment = Alignment.Center
-//                                                    ) {
-//                                                        if (drawablePreview != null) {
-//                                                            Image(
-//                                                                bitmap = drawablePreview,
-//                                                                contentDescription = "preset preview",
-//                                                                contentScale = ContentScale.Crop,
-//                                                                modifier = Modifier.fillMaxSize()
-//                                                            )
-//                                                        } else if (userThumb != null) {
-//                                                            Image(
-//                                                                bitmap = userThumb,
-//                                                                contentDescription = preset.displayName,
-//                                                                contentScale = ContentScale.Crop,
-//                                                                modifier = Modifier.fillMaxSize()
-//                                                            )
-//                                                        } else {
-//                                                            Box(
-//                                                                modifier = Modifier
-//                                                                    .fillMaxSize()
-//                                                                    .background(Color(0xFF1E293B))
-//                                                            )
-//                                                            if (isGeneratingPreviews.value) {
-//                                                                Box(
-//                                                                    modifier = Modifier.matchParentSize(),
-//                                                                    contentAlignment = Alignment.Center
-//                                                                ) {
-//                                                                    CircularProgressIndicator(
-//                                                                        color = Color.White,
-//                                                                        strokeWidth = 2.dp
-//                                                                    )
-//                                                                }
-//                                                            }
-//                                                        }
-//
-//                                                        Text(
-//                                                            text = preset.displayName,
-//                                                            color = Color.White,
-//                                                            style = MaterialTheme.typography.labelSmall,
-//                                                            modifier = Modifier
-//                                                                .align(Alignment.BottomCenter)
-//                                                                .padding(4.dp)
-//                                                        )
-//                                                    }
-//                                                }
-//                                            }
-//                                        }
-//                                    }
-//                                }
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -851,13 +552,11 @@ fun EditorScreen(onExport: () -> Unit, onBack: () -> Unit, viewModel: EditorView
                                     viewModel.applyFilterB(
                                         com.devsapiens.phonemagic.model.FilterBParams()
                                     )
-                                }
-                            ) { Text("Reset") }
+                                }) { Text("Reset") }
                             Button(
                                 onClick = {
                                     showFilters = false
-                                }
-                            ) { Text("Done") }
+                                }) { Text("Done") }
                         }
                         Spacer(Modifier.height(8.dp))
                         Column(
@@ -872,8 +571,7 @@ fun EditorScreen(onExport: () -> Unit, onBack: () -> Unit, viewModel: EditorView
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 items(FILTER_PRESETS, key = { it.id }) { preset ->
-                                    val drawablePreview =
-                                        drawablePreviewCache[preset.id]
+                                    val drawablePreview = drawablePreviewCache[preset.id]
                                     val userThumb = presetPreviews[preset.id]
                                     val isSelected = false
                                     Box(
@@ -900,14 +598,10 @@ fun EditorScreen(onExport: () -> Unit, onBack: () -> Unit, viewModel: EditorView
                                                                                 }
                                                                         val decoded =
                                                                             BitmapFactory.decodeStream(
-                                                                                ins,
-                                                                                null,
-                                                                                opts
-                                                                            )
-                                                                                ?: return@use null
+                                                                                ins, null, opts
+                                                                            ) ?: return@use null
                                                                         // scale down to a reasonable size for editing
-                                                                        val maxDim =
-                                                                            1200
+                                                                        val maxDim = 1200
                                                                         val scale =
                                                                             maxDim.toFloat() / kotlin.math.max(
                                                                                 decoded.width,
@@ -948,8 +642,7 @@ fun EditorScreen(onExport: () -> Unit, onBack: () -> Unit, viewModel: EditorView
                                                             ?: viewModel.state.value.filterB
                                                     )
                                                 }
-                                            },
-                                        contentAlignment = Alignment.Center
+                                            }, contentAlignment = Alignment.Center
                                     ) {
                                         if (drawablePreview != null) {
                                             Image(
@@ -977,8 +670,7 @@ fun EditorScreen(onExport: () -> Unit, onBack: () -> Unit, viewModel: EditorView
                                                     contentAlignment = Alignment.Center
                                                 ) {
                                                     CircularProgressIndicator(
-                                                        color = Color.White,
-                                                        strokeWidth = 2.dp
+                                                        color = Color.White, strokeWidth = 2.dp
                                                     )
                                                 }
                                             }
@@ -994,6 +686,199 @@ fun EditorScreen(onExport: () -> Unit, onBack: () -> Unit, viewModel: EditorView
                                         )
                                     }
                                 }
+                            }
+                        }
+                    }
+                } else if (showAdjustments) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(250.dp)
+                            .verticalScroll(rememberScrollState())
+                            .padding(horizontal = 16.dp)
+                    ) {
+                        ButtonWithLabelComponent(
+                            label = "Cerrar filtros",
+                            icon = R.drawable.ic_cancel_24,
+                            typeLabel = TypeLabel.Horizontal
+                        ) {
+                            showAdjustments = false
+                        }
+                        LazyRow(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp)
+                        ) {
+                            items(
+                                SliderEnum.toArray(), key = { it }) { item ->
+                                CardBasicComponent(
+                                    label = item.displayName, iconRes = item.iconRes
+                                ) {
+                                    viewModel.setSelectedSetting(item)
+                                }
+                            }
+                        }
+                        when (selectedSetting) {
+                            Explosion -> {
+                                SliderEditComponent(
+                                    title = "Explocion (Exposición): ${
+                                        String.format(
+                                            "%.2f", state.enhance.exposure
+                                        )
+                                    }",
+                                    newValue = state.enhance.exposure,
+                                    valueRange = -1f..1f,
+                                    onValueChange = {
+                                        viewModel.applyEnhance(
+                                            state.enhance.copy(exposure = it)
+                                        )
+                                    })
+                            }
+
+                            Brightness -> {
+                                SliderEditComponent(
+                                    title = "Brillo: ${
+                                        String.format(
+                                            "%.2f", state.filter.brightness
+                                        )
+                                    }",
+                                    newValue = state.filter.brightness,
+                                    valueRange = -1f..1f,
+                                    onValueChange = {
+                                        viewModel.applyFilter(
+                                            state.filter.copy(brightness = it)
+                                        )
+                                    })
+                            }
+
+                            Constant -> {
+                                SliderEditComponent(
+                                    title = "Constante: ${
+                                        String.format(
+                                            "%.2f", state.filter.contrast
+                                        )
+                                    }",
+                                    newValue = state.filter.contrast,
+                                    valueRange = 0f..2f,
+                                    onValueChange = {
+                                        viewModel.applyFilter(
+                                            state.filter.copy(contrast = it)
+                                        )
+                                    })
+                            }
+
+                            Clarity -> {
+                                SliderEditComponent(
+                                    title = "Clarida: ${
+                                        String.format(
+                                            "%.2f", state.enhance.clarity
+                                        )
+                                    }",
+                                    newValue = state.enhance.clarity,
+                                    valueRange = 0f..1f,
+                                    onValueChange = {
+                                        viewModel.applyEnhance(
+                                            state.enhance.copy(clarity = it)
+                                        )
+                                    })
+                            }
+
+                            Saturation -> {
+                                SliderEditComponent(
+                                    title = "Saturacion: ${
+                                        String.format(
+                                            "%.2f", state.filter.saturation
+                                        )
+                                    }",
+                                    newValue = state.filter.saturation,
+                                    valueRange = 0f..2f,
+                                    onValueChange = {
+                                        viewModel.applyFilter(
+                                            state.filter.copy(saturation = it)
+                                        )
+                                    })
+                            }
+
+                            Vibration -> {
+                                SliderEditComponent(
+                                    title = "Vibracion: ${
+                                        String.format(
+                                            "%.2f", state.enhance.vibrance
+                                        )
+                                    }",
+                                    newValue = state.enhance.vibrance,
+                                    valueRange = -1f..1f,
+                                    onValueChange = {
+                                        viewModel.applyEnhance(
+                                            state.enhance.copy(vibrance = it)
+                                        )
+                                    })
+                            }
+
+                            Warmth -> {
+                                SliderEditComponent(
+                                    title = "Calidez: ${
+                                        String.format(
+                                            "%.2f", state.enhance.warmth
+                                        )
+                                    }",
+                                    newValue = state.enhance.warmth,
+                                    valueRange = -1f..1f,
+                                    onValueChange = {
+                                        viewModel.applyEnhance(
+                                            state.enhance.copy(warmth = it)
+                                        )
+                                    })
+                            }
+
+                            Shadows -> {
+                                SliderEditComponent(
+                                    title = "Sombras: ${
+                                        String.format(
+                                            "%.2f", state.enhance.shadows
+                                        )
+                                    }",
+                                    newValue = state.enhance.shadows,
+                                    valueRange = -1f..1f,
+                                    onValueChange = {
+                                        viewModel.applyEnhance(
+                                            state.enhance.copy(shadows = it)
+                                        )
+                                    })
+                            }
+
+                            Dispersion -> {
+                                SliderEditComponent(
+                                    title = "Dispersion: ${
+                                        String.format(
+                                            "%.2f", state.enhance.dehaze
+                                        )
+                                    }",
+                                    newValue = state.enhance.dehaze,
+                                    valueRange = 0f..1f,
+                                    onValueChange = {
+                                        viewModel.applyEnhance(
+                                            state.enhance.copy(dehaze = it)
+                                        )
+                                    })
+                            }
+
+                            Grain -> {
+                                SliderEditComponent(
+                                    title = "Grano: ${String.format("%.2f", state.enhance.grain)}",
+                                    newValue = state.enhance.grain,
+                                    valueRange = 0f..1f,
+                                    onValueChange = {
+                                        viewModel.applyEnhance(
+                                            state.enhance.copy(grain = it)
+                                        )
+                                    })
+                            }
+
+                            None -> {
+                                viewModel.setSelectedSetting(None)
+                                showAdjustments = false
                             }
                         }
                     }
@@ -1013,59 +898,19 @@ fun EditorScreen(onExport: () -> Unit, onBack: () -> Unit, viewModel: EditorView
                             ) {
                                 showFilters = true
                             }
+                            ButtonWithLabelComponent(
+                                label = "Ajustes",
+                                icon = R.drawable.ic_tune_24,
+                            ) {
+                                showAdjustments = true
+                            }
+                            ButtonWithLabelComponent(
+                                label = "Guardar", icon = R.drawable.ic_file_save_24
+                            ) {
+                                viewModel.saveEditedImage(ctx, "photo_magic_edited_image")
+                            }
                         }
-
-//                    Column(modifier = Modifier.padding(16.dp)) {
-//                        Row(
-//                            Modifier.fillMaxWidth(),
-//                        ) {
-//                            Button(
-//                                onClick = {
-//                                    showFilters = true; activeTab = "A"
-//                                }
-//                            ) { Text("Filtro A") }
-//                            Spacer(Modifier.width(8.dp))
-//                            Button(
-//                                onClick = {
-//                                    showFilters = true; activeTab = "B"
-//                                }
-//                            ) { Text("Filtro B") }
-//                            Spacer(Modifier.width(8.dp))
-//                            Button(
-//                                onClick = {
-//                                    showFilters = true; activeTab = "A"
-//                                }
-//                            ) { Text("Abrir Filtros") }
-//                        }
-//
-//                        // Stickers / Text simple placeholders
-//                        Row {
-//                            androidx.compose.material3.Button(onClick = {
-//                                viewModel.addLayer(
-//                                    com.devsapiens.phonemagic.model.Layer.Sticker(
-//                                        resId = android.R.drawable.star_on,
-//                                        x = 50f,
-//                                        y = 50f,
-//                                        scale = 1f,
-//                                        rotation = 0f
-//                                    )
-//                                )
-//                            }) { Text("Agregar sticker") }
-//                            Spacer(Modifier.width(8.dp))
-//                            androidx.compose.material3.Button(onClick = {
-//                                viewModel.addLayer(
-//                                    com.devsapiens.phonemagic.model.Layer.Text(
-//                                        text = "Hola",
-//                                        color = 0xFF000000.toInt(),
-//                                        sizeSp = 18f,
-//                                        x = 100f,
-//                                        y = 100f,
-//                                        rotation = 0f
-//                                    )
-//                                )
-//                            }) { Text("Agregar texto") }
-//                        }
-//                    }
+                        Spacer(Modifier.height(8.dp))
                     }
                 }
             }

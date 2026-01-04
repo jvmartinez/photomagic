@@ -31,9 +31,11 @@ fun PhoneMagicApp(modifier: Modifier = Modifier) {
             })
         }
         composable(Routes.EDITOR) {
-            EditorScreen(onExport = {
-                navController.navigate(Routes.EXPORT)
-            }, onBack = { navController.popBackStack() }, viewModel = editorViewModel)
+            EditorScreen(
+                onBack = {
+                    navController.popBackStack()
+                }, viewModel = editorViewModel
+            )
         }
         composable(Routes.EXPORT) {
             ExportScreen(onDone = {

@@ -225,10 +225,214 @@ object ImageProcessor {
     }
 
     // Placeholder for enhance (sharpen/denoise) - currently no-op
-    @Suppress("UNUSED_PARAMETER")
     fun applyEnhanceParams(src: Bitmap, params: EnhanceParams): Bitmap {
-        // Implement real sharpen/denoise later. Return src for now.
-        return src
+        var out = src.copy(src.config ?: Bitmap.Config.ARGB_8888, true)
+        val canvas = Canvas(out)
+        val paint = Paint()
+        paint.isFilterBitmap = true
+
+        // Exposure: simple brightness offset applied to RGB
+        if (params.exposure != 0f) {
+            val exposureOffset = (params.exposure.coerceIn(-1f, 1f) * 255f)
+            val expMat = ColorMatrix(floatArrayOf(
+                1f, 0f, 0f, 0f, exposureOffset,
+                0f, 1f, 0f, 0f, exposureOffset,
+                0f, 0f, 1f, 0f, exposureOffset,
+                0f, 0f, 0f, 1f, 0f
+            ))
+            paint.colorFilter = ColorMatrixColorFilter(expMat)
+            canvas.drawBitmap(out, 0f, 0f, paint)
+            paint.colorFilter = null
+        }
+
+        // Vibrance: increase saturation but protect skin tones roughly by attenuating for high-red pixels
+        if (params.vibrance != 0f) {
+            val v = params.vibrance.coerceIn(-1f, 1f)
+            // approximate by adjusting saturation globally with weaker effect for high-red pixels via pixel loop
+            val satFactor = 1f + 0.6f * v
+            if (satFactor != 1f) {
+                val cm = ColorMatrix()
+                cm.setSaturation(satFactor.coerceAtLeast(0f))
+                paint.colorFilter = ColorMatrixColorFilter(cm)
+                canvas.drawBitmap(out, 0f, 0f, paint)
+                paint.colorFilter = null
+            }
+        }
+
+        // Warmth / temperature: shift blue/red channels
+        if (params.warmth != 0f) {
+            val w = params.warmth.coerceIn(-1f, 1f)
+            val redScale = 1f + w * 0.15f
+            val blueScale = 1f - w * 0.15f
+            val tempMat = ColorMatrix(floatArrayOf(
+                redScale, 0f, 0f, 0f, 0f,
+                0f, 1f, 0f, 0f, 0f,
+                0f, 0f, blueScale, 0f, 0f,
+                0f, 0f, 0f, 1f, 0f
+            ))
+            paint.colorFilter = ColorMatrixColorFilter(tempMat)
+            canvas.drawBitmap(out, 0f, 0f, paint)
+            paint.colorFilter = null
+        }
+
+        // Shadows: simple curve-like lift for dark pixels
+        if (params.shadows != 0f) {
+            val s = params.shadows.coerceIn(-1f, 1f)
+            val pixels = IntArray(out.width * out.height)
+            out.getPixels(pixels, 0, out.width, 0, 0, out.width, out.height)
+            var i = 0
+            while (i < pixels.size) {
+                val c = pixels[i]
+                val a = Color.alpha(c)
+                var r = Color.red(c)
+                var g = Color.green(c)
+                var b = Color.blue(c)
+                val lum = (0.299f * r + 0.587f * g + 0.114f * b) / 255f
+                val lift = (if (s > 0f) (1f - lum) * 0.2f * s else -lum * 0.2f * (-s))
+                r = (r + lift * 255f).toInt().coerceIn(0, 255)
+                g = (g + lift * 255f).toInt().coerceIn(0, 255)
+                b = (b + lift * 255f).toInt().coerceIn(0, 255)
+                pixels[i] = Color.argb(a, r, g, b)
+                i++
+            }
+            out.setPixels(pixels, 0, out.width, 0, 0, out.width, out.height)
+        }
+
+        // Dehaze (dispersion): approximate by increasing midtone contrast
+        if (params.dehaze != 0f) {
+            val d = params.dehaze.coerceIn(0f, 1f)
+            val contrast = 1f + 0.25f * d
+            val translate = (-0.5f * contrast + 0.5f) * 255f
+            val cm = ColorMatrix(floatArrayOf(
+                contrast, 0f, 0f, 0f, translate,
+                0f, contrast, 0f, 0f, translate,
+                0f, 0f, contrast, 0f, translate,
+                0f, 0f, 0f, 1f, 0f
+            ))
+            paint.colorFilter = ColorMatrixColorFilter(cm)
+            canvas.drawBitmap(out, 0f, 0f, paint)
+            paint.colorFilter = null
+        }
+
+        // Clarity: a lightweight local contrast boost using a crude unsharp mask (blur and subtract)
+        if (params.clarity > 0f) {
+            val c = params.clarity.coerceIn(0f, 1f)
+            try {
+                val blurred = StylizedFilters.blur(
+                    out,
+                    intensity = (4 * c).coerceAtLeast(1f)
+                )
+                // unsharp: out + (out - blurred) * strength
+                val width = out.width
+                val height = out.height
+                val srcPixels = IntArray(width * height)
+                val blurPixels = IntArray(width * height)
+                out.getPixels(srcPixels, 0, width, 0, 0, width, height)
+                blurred.getPixels(blurPixels, 0, width, 0, 0, width, height)
+                var i = 0
+                val strength = 0.5f * c
+                while (i < srcPixels.size) {
+                    val a = Color.alpha(srcPixels[i])
+                    val sr = Color.red(srcPixels[i])
+                    val sg = Color.green(srcPixels[i])
+                    val sb = Color.blue(srcPixels[i])
+                    val br = Color.red(blurPixels[i])
+                    val bg = Color.green(blurPixels[i])
+                    val bb = Color.blue(blurPixels[i])
+                    val nr = (sr + (sr - br) * strength).toInt().coerceIn(0, 255)
+                    val ng = (sg + (sg - bg) * strength).toInt().coerceIn(0, 255)
+                    val nb = (sb + (sb - bb) * strength).toInt().coerceIn(0, 255)
+                    srcPixels[i] = Color.argb(a, nr, ng, nb)
+                    i++
+                }
+                out.setPixels(srcPixels, 0, width, 0, 0, width, height)
+            } catch (_: Throwable) {
+                // fall back silently if blur fails
+            }
+        }
+
+        // Grain: overlay procedural noise
+        if (params.grain > 0f) {
+            val g = params.grain.coerceIn(0f, 1f)
+            val overlay = Bitmap.createBitmap(out.width, out.height, Bitmap.Config.ARGB_8888)
+            val canv = Canvas(overlay)
+            val rnd = java.util.Random(0)
+            val paintG = Paint()
+            val alpha = (g * 80).toInt().coerceIn(0, 255)
+            val w = out.width
+            val h = out.height
+            val pixels = IntArray(w * h)
+            var i = 0
+            while (i < pixels.size) {
+                val n = ((rnd.nextFloat() * 2f - 1f) * 255f).toInt().coerceIn(-255, 255)
+                val v = (128 + n).coerceIn(0, 255)
+                pixels[i] = Color.argb(alpha, v, v, v)
+                i++
+            }
+            overlay.setPixels(pixels, 0, w, 0, 0, w, h)
+            canv.drawBitmap(overlay, 0f, 0f, paintG)
+            val finalPaint = Paint()
+            finalPaint.isFilterBitmap = true
+            finalPaint.alpha = alpha
+            canvas.drawBitmap(overlay, 0f, 0f, finalPaint)
+            overlay.recycle()
+        }
+
+        // Sharpen: small unsharp-ish pass
+        if (params.sharpen > 0f) {
+            // approximate via small unsharp: combine original and a slightly blurred version
+            try {
+                val s = params.sharpen.coerceIn(0f, 1f)
+                val blurred = StylizedFilters.blur(
+                    out,
+                    intensity = (1f + 3f * s)
+                )
+                val width = out.width
+                val height = out.height
+                val srcPixels = IntArray(width * height)
+                val blurPixels = IntArray(width * height)
+                out.getPixels(srcPixels, 0, width, 0, 0, width, height)
+                blurred.getPixels(blurPixels, 0, width, 0, 0, width, height)
+                var i = 0
+                val strength = 0.7f * s
+                while (i < srcPixels.size) {
+                    val a = Color.alpha(srcPixels[i])
+                    val sr = Color.red(srcPixels[i])
+                    val sg = Color.green(srcPixels[i])
+                    val sb = Color.blue(srcPixels[i])
+                    val br = Color.red(blurPixels[i])
+                    val bg = Color.green(blurPixels[i])
+                    val bb = Color.blue(blurPixels[i])
+                    val nr = (sr + (sr - br) * strength).toInt().coerceIn(0, 255)
+                    val ng = (sg + (sg - bg) * strength).toInt().coerceIn(0, 255)
+                    val nb = (sb + (sb - bb) * strength).toInt().coerceIn(0, 255)
+                    srcPixels[i] = Color.argb(a, nr, ng, nb)
+                    i++
+                }
+                out.setPixels(srcPixels, 0, width, 0, 0, width, height)
+            } catch (_: Throwable) {
+                // ignore
+            }
+        }
+
+        // Denoise: simplistic blur reduction based on denoise strength
+        if (params.denoise > 0f) {
+            try {
+                val d = params.denoise.coerceIn(0f, 1f)
+                val radius = (3f * d).coerceAtLeast(0.5f)
+                val den = StylizedFilters.blur(
+                    out,
+                    intensity = radius
+                )
+                den?.let {
+                    out.recycle()
+                    out = den
+                }
+            } catch (_: Throwable) {
+            }
+        }
+
+        return out
     }
 
     // Compose all processing steps using the EditorState

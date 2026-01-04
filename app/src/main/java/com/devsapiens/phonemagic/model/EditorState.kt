@@ -28,9 +28,17 @@ data class FilterBParams(
     val strength: Float = 0f // 0..1
 )
 
+// Enhance params: sharpen/denoise and a wider set of per-image adjustments
 data class EnhanceParams(
     val sharpen: Float = 0f,    // 0..1
     val denoise: Float = 0f,    // 0..1
+    val exposure: Float = 0f,   // -1..1 (additional exposure offset)
+    val clarity: Float = 0f,    // 0..1 (local contrast/sharpness)
+    val vibrance: Float = 0f,   // -1..1 (vibrance adjustment)
+    val warmth: Float = 0f,     // -1..1 (color temperature shift)
+    val shadows: Float = 0f,    // -1..1 (lift or deepen shadows)
+    val dehaze: Float = 0f,     // 0..1 (reduce haze/increase midtone contrast)
+    val grain: Float = 0f,      // 0..1
     val upscaleRequested: Boolean = false
 )
 
