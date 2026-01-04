@@ -385,7 +385,9 @@ fun EditorScreen(onExport: () -> Unit, onBack: () -> Unit, viewModel: EditorView
         floatingActionButton = {
             FloatingActionButton(
                 containerColor = Coral,
-                onClick = { onExport() }
+                onClick = {
+                    viewModel.saveEditedImage(ctx, "photo_magic_edited_image")
+                }
             ) {
                 Image(
                     painter = painterResource(id = R.drawable.ic_file_save_24),

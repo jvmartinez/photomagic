@@ -1,7 +1,12 @@
 package com.devsapiens.phonemagic.viewmodel
 
+import android.content.ContentValues
+import android.content.Context
 import android.graphics.Bitmap
 import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.devsapiens.phonemagic.model.EditorState
@@ -11,10 +16,15 @@ import com.devsapiens.phonemagic.model.FilterBParams
 import com.devsapiens.phonemagic.model.EnhanceParams
 import com.devsapiens.phonemagic.model.Layer
 import com.devsapiens.phonemagic.processor.ImageProcessor
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.FileOutputStream
+import java.io.OutputStream
 
 class EditorViewModel : ViewModel() {
     private val _state = MutableStateFlow(EditorState())
@@ -22,6 +32,17 @@ class EditorViewModel : ViewModel() {
 
     private val undoStack = ArrayDeque<EditorState>()
     private val redoStack = ArrayDeque<EditorState>()
+
+    // Save flow
+    sealed class SaveStatus {
+        object Idle : SaveStatus()
+        object Saving : SaveStatus()
+        data class Success(val uri: Uri) : SaveStatus()
+        data class Error(val message: String) : SaveStatus()
+    }
+
+    private val _saveStatus = MutableStateFlow<SaveStatus>(SaveStatus.Idle)
+    val saveStatus: StateFlow<SaveStatus> = _saveStatus.asStateFlow()
 
     fun clearState() {
         _state.value = EditorState()
@@ -133,4 +154,85 @@ class EditorViewModel : ViewModel() {
      * Apply a baked bitmap into the state using commit so the action is undoable.
      */
     fun applyBakedBitmap(bitmap: Bitmap) = commit { it.copy(baseBitmap = bitmap) }
+
+    /**
+     * Public: save the currently exported/baked image to device storage (Pictures/PhoneMagic).
+     * Emits progress/results to [saveStatus] StateFlow.
+     * This will handle API Q+ via MediaStore RELATIVE_PATH and fall back to legacy file write for older devices.
+     */
+    fun saveEditedImage(context: Context, filename: String? = null) {
+        viewModelScope.launch {
+            _saveStatus.value = SaveStatus.Saving
+            try {
+                val bitmap = withContext(Dispatchers.Default) { exportBitmap() }
+                if (bitmap == null) {
+                    _saveStatus.value = SaveStatus.Error("No image to save")
+                    return@launch
+                }
+                val uri = withContext(Dispatchers.IO) {
+                    saveBitmapToMediaStore(context, bitmap, filename)
+                }
+                if (uri != null) {
+                    _saveStatus.value = SaveStatus.Success(uri)
+                } else {
+                    _saveStatus.value = SaveStatus.Error("Failed to save image")
+                }
+            } catch (t: Throwable) {
+                _saveStatus.value = SaveStatus.Error(t.message ?: "Unknown error")
+            }
+        }
+    }
+
+    // Helper that actually writes the Bitmap to storage and returns the resulting Uri (or null)
+    private suspend fun saveBitmapToMediaStore(context: Context, bitmap: Bitmap, filename: String? = null): Uri? {
+        return withContext(Dispatchers.IO) {
+            val displayName = filename ?: "phonemagic_${System.currentTimeMillis()}.png"
+            val mimeType = "image/png"
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val values = ContentValues().apply {
+                    put(MediaStore.Images.Media.DISPLAY_NAME, displayName)
+                    put(MediaStore.Images.Media.MIME_TYPE, mimeType)
+                    put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + File.separator + "PhoneMagic")
+                    put(MediaStore.Images.Media.IS_PENDING, 1)
+                }
+
+                val resolver = context.contentResolver
+                val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: return@withContext null
+                var out: OutputStream? = null
+                try {
+                    out = resolver.openOutputStream(uri)
+                    out?.use { stream ->
+                        bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
+                    }
+                } catch (e: Exception) {
+                    // If write failed, try to cleanup
+                    try { uri.let { resolver.delete(it, null, null) } } catch (_: Exception) {}
+                    return@withContext null
+                } finally {
+                    // mark not pending
+                    values.clear()
+                    values.put(MediaStore.Images.Media.IS_PENDING, 0)
+                    try { resolver.update(uri, values, null, null) } catch (_: Exception) {}
+                }
+                return@withContext uri
+            } else {
+                // Legacy path: write to Pictures/PhoneMagic (requires WRITE_EXTERNAL_STORAGE on older devices)
+                try {
+                    val pictures = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
+                    val dir = File(pictures, "PhoneMagic")
+                    if (!dir.exists()) dir.mkdirs()
+                    val file = File(dir, displayName)
+                    FileOutputStream(file).use { fos ->
+                        bitmap.compress(Bitmap.CompressFormat.PNG, 100, fos)
+                        fos.flush()
+                    }
+                    // Return file:// URI; caller can trigger MediaScanner if needed
+                    return@withContext Uri.fromFile(file)
+                } catch (e: Exception) {
+                    return@withContext null
+                }
+            }
+        }
+    }
 }

@@ -174,5 +174,76 @@ val FILTER_PRESETS = listOf(
         filter = FilterParams(brightness = 0.01f, contrast = 1.02f, saturation = 1.03f),
         filterA = FilterAParams(intensity = 0.6f, warmth = 0.06f, vignette = 0.02f),
         previewRes = R.drawable.ic_preview_filter_2
+    ),
+    // New custom stylized presets requested
+    FilterPreset(
+        id = "pelicula_instantanea",
+        displayName = "Película Instantánea",
+        filter = FilterParams(brightness = 0.03f, contrast = 1.05f, saturation = 1.1f, stylize = "instant", stylizeIntensity = 0.9f),
+        filterA = FilterAParams(intensity = 0.12f, warmth = 0.08f, vignette = 0.06f),
+        previewRes = R.drawable.ic_preview_filter_2
+    ),
+    FilterPreset(
+        id = "juventas",
+        displayName = "Juventas",
+        filter = FilterParams(brightness = 0.04f, contrast = 1.08f, saturation = 1.15f, stylize = "juventas", stylizeIntensity = 0.85f),
+        filterA = FilterAParams(intensity = 0.15f, warmth = 0.1f, vignette = 0.04f),
+        previewRes = R.drawable.ic_preview_filter_2
+    ),
+    FilterPreset(
+        id = "vesper",
+        displayName = "Vesper",
+        filter = FilterParams(brightness = -0.02f, contrast = 1.02f, saturation = 1.05f, stylize = "vesper", stylizeIntensity = 0.8f),
+        filterA = FilterAParams(intensity = 0.09f, warmth = -0.02f, vignette = 0.07f),
+        previewRes = R.drawable.ic_preview_filter_2
+    ),
+    FilterPreset(
+        id = "periwinkle",
+        displayName = "Periwinkle",
+        filter = FilterParams(brightness = 0f, contrast = 1.0f, saturation = 1.08f, stylize = "periwinkle", stylizeIntensity = 0.7f),
+        filterB = FilterBParams(highlightsTint = 0xFFDDE8FF.toInt(), shadowsTint = 0x2A1E4F, strength = 0.25f),
+        previewRes = R.drawable.ic_preview_filter_2
+    ),
+    FilterPreset(
+        id = "clasico",
+        displayName = "Clásico",
+        filter = FilterParams(brightness = 0f, contrast = 1.08f, saturation = 0.95f, stylize = "classic", stylizeIntensity = 0.85f),
+        filterA = FilterAParams(intensity = 0.07f, warmth = 0.04f, vignette = 0.05f),
+        previewRes = R.drawable.ic_preview_filter_2
+    ),
+    FilterPreset(
+        id = "perla",
+        displayName = "Perla",
+        filter = FilterParams(brightness = 0.06f, contrast = 1.0f, saturation = 0.9f, stylize = "pearl", stylizeIntensity = 0.6f),
+        filterA = FilterAParams(intensity = 0.05f, warmth = -0.01f, vignette = 0.03f),
+        previewRes = R.drawable.ic_preview_filter_2
+    ),
+    FilterPreset(
+        id = "calabaza",
+        displayName = "Calabaza",
+        filter = FilterParams(brightness = 0.02f, contrast = 1.03f, saturation = 1.15f, stylize = "pumpkin", stylizeIntensity = 0.9f),
+        filterA = FilterAParams(intensity = 0.14f, warmth = 0.25f, vignette = 0.06f),
+        previewRes = R.drawable.ic_preview_filter_2
+    ),
+    FilterPreset(
+        id = "hielo_negro",
+        displayName = "Hielo Negro",
+        filter = FilterParams(brightness = -0.05f, contrast = 0.95f, saturation = 0.6f, stylize = "ice_black", stylizeIntensity = 0.9f),
+        filterA = FilterAParams(intensity = 0.06f, warmth = -0.3f, vignette = 0.18f),
+        previewRes = R.drawable.ic_preview_filter_2
+    ),
+    FilterPreset(
+        id = "ciberpunk",
+        displayName = "Ciberpunk",
+        filter = FilterParams(brightness = 0f, contrast = 1.05f, saturation = 1.25f, stylize = "cyberpunk", stylizeIntensity = 0.95f),
+        filterB = FilterBParams(highlightsTint = 0xFF00FFC8.toInt(), shadowsTint = 0xFF2B00FF.toInt(), strength = 0.35f),
+        previewRes = R.drawable.ic_preview_filter_2
+    ),
+    FilterPreset(
+        id = "fantasia",
+        displayName = "Fantasía",
+        filter = FilterParams(brightness = 0.04f, contrast = 1.02f, saturation = 1.3f, stylize = "fantasy", stylizeIntensity = 0.9f),
+        filterA = FilterAParams(intensity = 0.18f, warmth = 0.06f, vignette = 0.02f),
+        previewRes = R.drawable.ic_preview_filter_2
     )
 )
