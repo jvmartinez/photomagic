@@ -14,9 +14,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
@@ -33,6 +35,12 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
+import androidx.compose.ui.graphics.graphicsLayer
+import com.devsapiens.phonemagic.R
+import com.devsapiens.phonemagic.component.button.ButtonComponent
+import com.devsapiens.phonemagic.component.button.ButtonWithLabelComponent
+import com.devsapiens.phonemagic.component.button.ConfigButton
+import kotlin.math.PI
 
 /**
  * CropScreen mejorado: soporta arrastrar las esquinas individualmente y presets de aspect ratio.
@@ -48,12 +56,13 @@ fun CropScreen(
     rightNormState: MutableState<Float>,
     bottomNormState: MutableState<Float>,
     onCancel: () -> Unit,
-    onApply: () -> Unit
+    onApply: (Float) -> Unit
 ) {
     val img = bitmap.asImageBitmap()
     val minSizeNorm = 0.01f
     val scope = rememberCoroutineScope()
     val aspectRatio = remember { mutableStateOf<Float?>(null) }
+    val rotationDegrees = remember { mutableStateOf(0f) }
 
     Column(modifier = Modifier.fillMaxSize()) {
         Box(
@@ -67,7 +76,9 @@ fun CropScreen(
                 bitmap = img,
                 contentDescription = "Preview",
                 contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { rotationZ = rotationDegrees.value }
             )
 
             val canvasW = remember { mutableStateOf(0f) }
@@ -80,7 +91,12 @@ fun CropScreen(
                         canvasW.value = it.width.toFloat(); canvasH.value = it.height.toFloat()
                     }
                     .pointerInput(Unit) {
-                        detectTransformGestures { centroid, pan, zoom, _ ->
+                        detectTransformGestures { centroid, pan, zoom, rotation ->
+                            // convert rotation (radians) to degrees and accumulate
+                            val deg = rotation * (180f / PI.toFloat())
+                            if (kotlin.math.abs(deg) > 0.1f) {
+                                rotationDegrees.value = (rotationDegrees.value + deg) % 360f
+                            }
                             if (canvasW.value <= 0f || canvasH.value <= 0f) return@detectTransformGestures
 
                             val l = leftNormState.value
@@ -143,6 +159,7 @@ fun CropScreen(
                                 return@detectTransformGestures
                             }
 
+                            // Otherwise handle pan (single or multi-finger) using handle detection
                             when (handle) {
                                 DragHandle.TL -> {
                                     val newL = (l + dxN).coerceIn(0f, r - minSizeNorm)
@@ -278,9 +295,11 @@ fun CropScreen(
                 .padding(8.dp),
             colors = CardDefaults.cardColors(containerColor = Color(0xFF101010))
         ) {
-            Column(modifier = Modifier
-                .fillMaxWidth()
-                .padding(8.dp)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(8.dp)
+            ) {
                 Text("Ajustar recorte", color = Color.White)
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(
@@ -308,7 +327,6 @@ fun CropScreen(
                                     val cy = (t + btm) / 2f
                                     val currH = btm - t
                                     val desiredW = (r * currH).coerceIn(0.01f, 1f)
-                                    // choose which keeps more area (prefer changing height)
                                     val newW = desiredW
                                     val newH = newW / r
                                     val halfW = newW / 2f
@@ -325,25 +343,63 @@ fun CropScreen(
                     }
                 }
 
-//                Spacer(modifier = Modifier.height(8.dp))
-//
-//                // Sliders to fine-tune normalized coords
-//                Text("Left: ${String.format("%.2f", leftNormState.value)}", color = Color.White)
-//                androidx.compose.material3.Slider(value = leftNormState.value, onValueChange = { v -> leftNormState.value = v.coerceIn(0f, rightNormState.value - 0.01f) })
-//                Text("Top: ${String.format("%.2f", topNormState.value)}", color = Color.White)
-//                androidx.compose.material3.Slider(value = topNormState.value, onValueChange = { v -> topNormState.value = v.coerceIn(0f, bottomNormState.value - 0.01f) })
-//                Text("Right: ${String.format("%.2f", rightNormState.value)}", color = Color.White)
-//                androidx.compose.material3.Slider(value = rightNormState.value, onValueChange = { v -> rightNormState.value = v.coerceIn(leftNormState.value + 0.01f, 1f) })
-//                Text("Bottom: ${String.format("%.2f", bottomNormState.value)}", color = Color.White)
-//                androidx.compose.material3.Slider(value = bottomNormState.value, onValueChange = { v -> bottomNormState.value = v.coerceIn(topNormState.value + 0.01f, 1f) })
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ButtonWithLabelComponent(
+                            label = "-90", icon = R.drawable.ic_rotate_90_degrees_ccw_24
+                        ) {
+                            rotationDegrees.value = (rotationDegrees.value - 90f) % 360f
+                        }
+                        ButtonWithLabelComponent(
+                            label = "90+", icon = R.drawable.ic_rotate_90_degrees_cw_24
+                        ) {
+                            rotationDegrees.value = (rotationDegrees.value + 90f) % 360f
+                        }
+                    }
+
+                    ButtonWithLabelComponent(
+                        label = "Reset rotación",
+                        icon = R.drawable.ic_lock_reset_24
+                    ) {
+                        rotationDegrees.value = 0f
+                    }
+
+                    Slider(
+                        value = rotationDegrees.value,
+                        valueRange = -180f..180f,
+                        onValueChange = { rotationDegrees.value = it }
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
 
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(
                     horizontalArrangement = Arrangement.SpaceEvenly,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
                 ) {
-                    Button(onClick = onCancel) { Text("Cancelar") }
-                    Button(onClick = onApply) { Text("Aplicar") }
+                    ButtonComponent(
+                        modifier = Modifier.width(120.dp),
+                        config = ConfigButton(
+                            title = "Cancelar",
+                            onClick = { onCancel() }
+                        )
+                    )
+                    Spacer(modifier = Modifier.weight(1f))
+                    ButtonComponent(
+                        modifier = Modifier.width(120.dp),
+                        config = ConfigButton(
+                            title = "Aplicar",
+                            onClick = {onApply(rotationDegrees.value) }
+                        )
+                    )
                 }
             }
         }

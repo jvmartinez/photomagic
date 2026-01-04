@@ -414,12 +414,13 @@ fun EditorScreen(onBack: () -> Unit, viewModel: EditorViewModel) {
                     rightNormState = rightNorm,
                     bottomNormState = bottomNorm,
                     onCancel = { viewModel.cancelCrop() },
-                    onApply = {
-                        viewModel.applyCropNormalized(
-                            leftNorm.value,
-                            topNorm.value,
-                            rightNorm.value,
-                            bottomNorm.value
+                    onApply = { degrees ->
+                        viewModel.applyRotationAndCrop(
+                            left = leftNorm.value,
+                            top = topNorm.value,
+                            right = rightNorm.value,
+                            bottom = bottomNorm.value,
+                            degrees = degrees
                         )
                     }
                 )

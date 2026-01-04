@@ -3,6 +3,7 @@ package com.devsapiens.phonemagic.viewmodel
 import android.content.ContentValues
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Matrix
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -285,6 +286,56 @@ class EditorViewModel : ViewModel() {
                 commit { it.copy(baseBitmap = cropped) }
             } catch (_: Throwable) {
                 // ignore crop failure
+            } finally {
+                _isCropping.value = false
+            }
+        }
+    }
+
+    fun rotateEditedImage(degrees: Float) {
+        val base = _state.value.baseBitmap ?: return
+        viewModelScope.launch(Dispatchers.Default) {
+            try {
+                val matrix = Matrix()
+                matrix.postRotate(degrees)
+                val rotated = Bitmap.createBitmap(base, 0, 0, base.width, base.height, matrix, true)
+                commit { it.copy(baseBitmap = rotated) }
+            } catch (_: Throwable) {
+                // ignore rotation error
+            }
+        }
+    }
+
+    /**
+     * Rotate the base bitmap by `degrees` and then apply a normalized crop rect (left,top,right,bottom in 0..1).
+     * Commits the cropped bitmap as new baseBitmap (undoable).
+     */
+    fun applyRotationAndCrop(left: Float, top: Float, right: Float, bottom: Float, degrees: Float) {
+        val base = _state.value.baseBitmap ?: return
+        val l = left.coerceIn(0f, 1f)
+        val t = top.coerceIn(0f, 1f)
+        val r = right.coerceIn(0f, 1f)
+        val b = bottom.coerceIn(0f, 1f)
+        if (r <= l || b <= t) {
+            _isCropping.value = false
+            return
+        }
+        viewModelScope.launch(Dispatchers.Default) {
+            try {
+                // rotate
+                val matrix = Matrix()
+                matrix.postRotate(degrees)
+                val rotated = Bitmap.createBitmap(base, 0, 0, base.width, base.height, matrix, true)
+                // compute crop in rotated bitmap coords
+                val width = rotated.width
+                val height = rotated.height
+                val x = (l * width).toInt().coerceIn(0, width - 1)
+                val y = (t * height).toInt().coerceIn(0, height - 1)
+                val w = ((r - l) * width).toInt().coerceAtLeast(1).coerceIn(1, width - x)
+                val h = ((b - t) * height).toInt().coerceAtLeast(1).coerceIn(1, height - y)
+                val cropped = Bitmap.createBitmap(rotated, x, y, w, h)
+                commit { it.copy(baseBitmap = cropped) }
+            } catch (_: Throwable) {
             } finally {
                 _isCropping.value = false
             }
