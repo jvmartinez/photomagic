@@ -48,6 +48,9 @@ class EditorViewModel : ViewModel() {
     private val _selectedSetting = MutableStateFlow<SliderEnum>(SliderEnum.None)
     val selectedSetting: StateFlow<SliderEnum> = _selectedSetting
 
+    private val _isCropping = MutableStateFlow(false)
+    val isCropping: StateFlow<Boolean> = _isCropping.asStateFlow()
+
     fun setSelectedSetting(setting: SliderEnum) {
         _selectedSetting.value = setting
     }
@@ -240,6 +243,50 @@ class EditorViewModel : ViewModel() {
                 } catch (e: Exception) {
                     return@withContext null
                 }
+            }
+        }
+    }
+
+    fun resizeEditedImage() {
+        // Enter cropping mode in the UI
+        _isCropping.value = true
+    }
+
+    fun cancelCrop() {
+        _isCropping.value = false
+    }
+
+    /**
+     * Apply a crop using normalized coordinates in [0..1] relative to the current base bitmap.
+     * left/top/right/bottom are normalized fractions.
+     */
+    fun applyCropNormalized(left: Float, top: Float, right: Float, bottom: Float) {
+        val base = _state.value.baseBitmap ?: return
+        // clamp inputs
+        val l = left.coerceIn(0f, 1f)
+        val t = top.coerceIn(0f, 1f)
+        val r = right.coerceIn(0f, 1f)
+        val b = bottom.coerceIn(0f, 1f)
+        if (r <= l || b <= t) {
+            // invalid rect -> cancel
+            _isCropping.value = false
+            return
+        }
+        viewModelScope.launch(Dispatchers.Default) {
+            try {
+                val width = base.width
+                val height = base.height
+                val x = (l * width).toInt().coerceIn(0, width - 1)
+                val y = (t * height).toInt().coerceIn(0, height - 1)
+                val w = ((r - l) * width).toInt().coerceAtLeast(1).coerceIn(1, width - x)
+                val h = ((b - t) * height).toInt().coerceAtLeast(1).coerceIn(1, height - y)
+                val cropped = Bitmap.createBitmap(base, x, y, w, h)
+                // commit as a new state so it's undoable
+                commit { it.copy(baseBitmap = cropped) }
+            } catch (_: Throwable) {
+                // ignore crop failure
+            } finally {
+                _isCropping.value = false
             }
         }
     }

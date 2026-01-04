@@ -47,6 +47,7 @@ fun CardBasicComponent(
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            Spacer(modifier = Modifier.height(8.dp))
             Image(
                 painter = painterResource(id = iconRes),
                 contentDescription = label,
@@ -61,6 +62,7 @@ fun CardBasicComponent(
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth()
             )
+            Spacer(modifier = Modifier.height(8.dp))
         }
     }
 }
