@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">Phone Magic</string>
+    <string name="copy_button_retry">Reintentar</string>
 </resources>

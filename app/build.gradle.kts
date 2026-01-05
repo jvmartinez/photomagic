@@ -1,3 +1,17 @@
+import java.util.Properties
+import java.io.FileInputStream
+
+// Load local properties (sensitive keys) if present
+val localPropsFile = rootProject.file("local.properties")
+val localProps = Properties()
+if (localPropsFile.exists()) {
+    FileInputStream(localPropsFile).use { fis ->
+        localProps.load(fis)
+    }
+}
+
+fun prop(key: String, default: String = ""): String = localProps.getProperty(key) ?: default
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -27,6 +41,14 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            buildConfigField("String", "adHomeBanner", "\"${prop("adHomeBannerPro", "")}\"")
+            buildConfigField("String", "entryScreenIntersticial", "\"${prop("entryScreenIntersticialPro", "")}\"")
+            manifestPlaceholders["adUnitIdMain"] = prop("adUnitIdMainPro", "")
+        }
+        debug {
+            buildConfigField("String", "adHomeBanner", "\"${prop("adHomeBanner", "")}\"")
+            buildConfigField("String", "entryScreenIntersticial", "\"${prop("entryScreenIntersticial", "")}\"")
+            manifestPlaceholders["adUnitIdMain"] = prop("adUnitIdMain", "")
         }
     }
     compileOptions {
@@ -38,6 +60,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
@@ -50,14 +73,10 @@ dependencies {
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
-    // Image loading
-    implementation("io.coil-kt:coil-compose:2.6.0")
-    // Permissions helper (optional)
-    implementation("com.google.accompanist:accompanist-permissions:0.36.0")
-    // Navigation for compose
-    implementation("androidx.navigation:navigation-compose:2.6.0")
-    // ViewModel compose integration
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.6.2")
+    implementation(libs.coil.compose)
+    implementation(libs.accompanist.permissions)
+    implementation(libs.androidx.navigation.compose.v260)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
@@ -65,4 +84,7 @@ dependencies {
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
+    implementation(libs.androidx.animation)
+    implementation(libs.androidx.splashScren)
+    implementation(libs.play.services.ads)
 }

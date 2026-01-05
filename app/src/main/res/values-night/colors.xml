@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Overrides for dark mode -->
+    <color name="splash_background">#FFF</color>
+</resources>
+

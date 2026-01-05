@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- white background -->
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#FFFFFFFF" />
+        </shape>
+    </item>
+
+    <!-- centered splash logo (uses your generated ic_logo_spash in mipmap)
+         Use inset + bitmap so the logo is padded/scaled and not cropped -->
+    <item>
+        <bitmap
+            android:src="@mipmap/ic_logo_spash"
+            android:gravity="center"
+            android:antialias="true" />
+    </item>
+</layer-list>
