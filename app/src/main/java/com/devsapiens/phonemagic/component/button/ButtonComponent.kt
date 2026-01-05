@@ -10,9 +10,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.devsapiens.phonemagic.ui.theme.Coral
 import com.devsapiens.phonemagic.ui.theme.LightBackground
 import com.devsapiens.phonemagic.ui.theme.Navy700
+import com.devsapiens.phonemagic.ui.theme.Navy900
 
 @Composable
 fun ButtonComponent(
@@ -24,10 +24,10 @@ fun ButtonComponent(
         onClick = { config.onClick(Unit) },
         modifier = modifierDefault,
         colors = ButtonDefaults.buttonColors(
-            containerColor = config.bgColor ?: Coral,
+            containerColor = config.bgColor ?: Navy900,
             contentColor = config.textColor ?: LightBackground,
             disabledContainerColor = config.bgColor ?: LightBackground,
-            disabledContentColor = config.textColor ?: Coral,
+            disabledContentColor = config.textColor ?: Navy900,
         ),
         border = BorderStroke(
             width = 2.dp,

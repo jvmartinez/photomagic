@@ -20,6 +20,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.devsapiens.phonemagic.ui.theme.Coral
 import com.devsapiens.phonemagic.ui.theme.LightBackground
+import com.devsapiens.phonemagic.ui.theme.Navy900
 
 enum class TypeLabel {
     Vertical,
@@ -44,7 +45,7 @@ fun ButtonWithLabelComponent(
             ) {
                 Image(
                     painter = painterResource(icon),
-                    colorFilter = ColorFilter.tint(Coral),
+                    colorFilter = ColorFilter.tint(Navy900),
                     contentDescription = "Reset"
                 )
             }

@@ -53,7 +53,6 @@ fun PhoneMagicTheme(
     if (!view.isInEditMode) {
         val window = (view.context as Activity).window
         WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !darkTheme
-        window.statusBarColor = colorScheme.primary.toArgb()
     }
 
     MaterialTheme(

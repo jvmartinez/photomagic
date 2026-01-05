@@ -3,7 +3,7 @@ package com.devsapiens.phonemagic.ui.theme
 import androidx.compose.ui.graphics.Color
 
 // Modern, attractive palette
-val Navy900 = Color(0xFF061028)
+val Navy900 = Color(0xFF0E4381)
 val Navy800 = Color(0xFF0B2340)
 val Navy700 = Color(0xFF12304A)
 val Coral = Color(0xFFFF6B6B)
@@ -19,6 +19,6 @@ val DarkSurface = Color(0xFF0B1724)
 // Semantic aliases used in the app theme
 val Primary = Coral
 val PrimaryVariant = CoralDark
-val Secondary = Mint
+val Secondary = Navy700
 val SurfaceColor = LightSurface
 val BackgroundColor = LightBackground
